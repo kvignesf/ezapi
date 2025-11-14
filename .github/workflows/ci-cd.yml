@@ -126,10 +126,63 @@ jobs:
           
           cd $DEPLOY_BASE/miner
           unzip -o python-app.zip > /dev/null 2>&1
+          
+          # Install Python build tools first
+          sudo apt-get update
+          sudo apt-get install -y python3-pip python3-venv build-essential python3-dev
+          
           python3 -m venv venv
           source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r REQUIREMENTS.txt
+          pip install --upgrade pip setuptools wheel
+          
+          # Install dependencies with compatibility fixes
+          pip install cachetools==5.0.0
+          pip install certifi==2021.10.8
+          pip install chardet==3.0.4
+          pip install click==8.1.3
+          pip install dnspython==2.0.0
+          pip install Faker==4.5.0
+          pip install Flask==2.1.2
+          pip install Flask-Cors==3.0.8
+          pip install google-api-core==2.7.3
+          pip install google-auth==2.6.6
+          pip install google-cloud-core==2.3.0
+          pip install google-cloud-storage==2.1.0
+          pip install google-crc32c==1.3.0
+          pip install google-resumable-media==2.3.2
+          pip install googleapis-common-protos==1.56.1
+          pip install idna==2.10
+          pip install importlib-metadata==4.11.3
+          pip install itsdangerous==2.0.1
+          pip install Jinja2==3.1.2
+          pip install jsonref==0.2
+          pip install MarkupSafe==2.1.1
+          pip install numpy==1.22.3 --no-build-isolation
+          pip install pandas==1.4.2 --no-build-isolation
+          pip install protobuf==3.20.1
+          pip install psycopg2-binary==2.9.3
+          pip install pyasn1==0.4.8
+          pip install pyasn1-modules==0.2.8
+          pip install pycryptodome==3.14.1
+          pip install pymongo==3.11.0
+          pip install pyodbc==4.0.32 --no-build-isolation
+          pip install python-dateutil==2.8.2
+          pip install python-decouple==3.4
+          pip install pytz==2022.1
+          pip install requests==2.24.0
+          pip install rsa==4.8
+          pip install scipy==1.8.0 --no-build-isolation
+          pip install shortuuid==1.0.9
+          pip install six==1.16.0
+          pip install sqlalchemy==2.0.7
+          pip install text-unidecode==1.3
+          pip install urllib3==1.25.11
+          pip install wordninja==2.0.0
+          pip install zipp==3.8.0
+          pip install pyjwt==2.4.0
+          pip install cx-oracle==8.3.0
+          pip install oracledb==1.3.0
+          
           nohup python3 app.py > python_app.log 2>&1 &
           echo $! > python_app.pid
           
