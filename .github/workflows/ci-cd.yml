@@ -55,10 +55,13 @@ jobs:
       - name: Build Python Miner
         working-directory: ezapi-miner
         run: |
+          # List files to verify the directory contents
+          ls -la
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
+          # Use the correct filename (REQUIREMENTS.txt instead of requirements.txt)
+          pip install -r REQUIREMENTS.txt
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*"
 
