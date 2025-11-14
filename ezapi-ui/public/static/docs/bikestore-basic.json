@@ -1,0 +1,170 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "bikestore_plain",
+        "description": "Generated Spec - OpenAPI 3.0",
+        "version": "0.0.1"
+    },
+    "tags": [],
+    "paths": {
+        "/stores": {
+            "get": {
+                "operationId": "get /getStoresbyId",
+                "parameters": [
+                    {
+                        "name": "store_id",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application-json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/stores"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "post /addStore",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application-json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/stores"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "description": "",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/stores_1"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "operationId": "put /updateStore",
+                "parameters": [
+                    {
+                        "name": "store_id",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application-json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/stores"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "description": "",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/stores_1"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "stores": {
+                "type": "object",
+                "properties": {
+                    "store_id": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "store_name": {
+                        "type": "string"
+                    },
+                    "phone": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "street": {
+                        "type": "string"
+                    },
+                    "city": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "zip_code": {
+                        "type": "string"
+                    }
+                }
+            },
+            "stores_1": {
+                "type": "object",
+                "properties": {
+                    "store_name": {
+                        "type": "string"
+                    },
+                    "phone": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "street": {
+                        "type": "string"
+                    },
+                    "city": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "zip_code": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "store_name",
+                    "phone",
+                    "email",
+                    "street",
+                    "city",
+                    "state",
+                    "zip_code"
+                ]
+            }
+        }
+    }
+}

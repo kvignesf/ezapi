@@ -1,0 +1,50 @@
+image: maven
+include:
+  project: 'ezapi_poc/infra_poc'
+  file: 
+    - 'build-java-code-gen-test.yaml'
+    - 'build-java-code-gen-stage.yaml'
+    - 'build-java-code-gen-master.yaml'
+    - 'deploy-java-code-gen-test.yaml'
+    - 'deploy-java-code-gen-stage.yaml'
+    - 'deploy-java-code-gen-master.yaml'
+stages:
+  - build-test
+  - build-stage
+  - build-master  
+  - deploy-test
+  - deploy-stage
+  - deploy-master
+build-test:
+  stage: build-test
+  extends: .build-java-code-gen-test
+  only:
+    - dev
+build-stage:
+  stage: build-stage
+  extends: .build-java-code-gen-stage
+  only:
+    - stage
+build-master:
+  stage: build-master
+  extends: .build-java-code-gen-master
+  only:
+    - main
+deploy-test:
+  stage: deploy-test
+  image: alpine  
+  extends: .deploy-java-code-gen-test
+  only: 
+    - dev
+deploy-stage:
+  stage: deploy-stage
+  image: alpine  
+  extends: .deploy-java-code-gen-stage
+  only: 
+    - stage
+deploy-master:
+  stage: deploy-master
+  image: alpine  
+  extends: .deploy-java-code-gen-master
+  only: 
+    - main

@@ -1,0 +1,6 @@
+#tableNameTruncate {
+  text-overflow: ellipsis;
+  overflow: visible;
+  white-space: normal;
+  word-break: break-all;
+}

@@ -1,0 +1,154 @@
+image: node:alpine
+before_script:
+  - 'echo \REACT_APP_API_URL\ = \"$APIURL\">> .env.dev'
+  - 'echo \REACT_APP_LINKEDIN_CLIENT_ID\ = \"$LINKEDINCLIENTID\">> .env.dev'
+  - 'echo \REACT_APP_STRIPE_KEY\ = \"$REACT_APP_STRIPE_TEST_KEY\">> .env.dev'
+  - 'echo \REACT_APP_DEPLOY_ENV\ = \"$TREACT_APP_DEPLOY_ENV\">> .env.dev'
+  - 'echo \REACT_APP_FEATURE_CUSTOM_PARAMETER\ = \"$TREACT_APP_FEATURE_CUSTOM_PARAMETER\">> .env.dev'
+  - 'echo \REACT_APP_FEATURE_STORED_PROCS\ = \"$TREACT_APP_FEATURE_STORED_PROCS\">> .env.dev'
+  - 'echo \REACT_APP_AES_ENCRYPTION_KEY\ = \"$LOWER_AES_ENCRYPTION_KEY\">> .env.dev'
+  - 'echo \REACT_APP_GOOGLE_CLIENT_ID\ = \"$LOWER_GOOGLE_CLIENT_ID\">> .env.dev'
+  - 'echo \REACT_APP_GITHUB_CLIENT_ID\ = \"$TEST_GITHUB_CLIENT_ID\">> .env.dev'
+  - 'echo \REACT_APP_REDIRECT_URI\ = \"$TEST_APP_REDIRECT_URI\">> .env.dev'
+  - 'echo \REACT_APP_SAMPLE_PROJ_LIMIT\ = \"$TEST_SAMPLE_PROJ_LIMIT\">> .env.dev'
+  - 'echo \REACT_APP_DISABLE_DDL\ = \"$TEST_DISABLE_DDL\">> .env.dev'
+  - 'echo \REACT_APP_SOCKET_URI\ = \"$TEST_SOCKET_URI\">> .env.dev'
+  - 'echo \REACT_APP_DISABLE_AGGREGATE\ = \"$TEST_DISABLE_AGGREGATE\">> .env.dev'
+  - 'echo \REACT_APP_DISABLE_APIGOV\ = \"$TEST_DISABLE_APIGOV\">> .env.dev'
+  - 'echo \REACT_APP_DISABLE_ORACLEDB\ = \"$TEST_DISABLE_ORACLEDB\">> .env.dev'
+  - 'echo \REACT_APP_DISPLAY_COLLECTIONS\ = \"$TEST_DISPLAY_COLLECTIONS\">> .env.dev'
+  - 'echo \REACT_APP_PROXY_URL\ = \"$LOWER_REACT_APP_PROXY_URL\">> .env.dev'
+  -  cat .env.dev
+  - 'echo \REACT_APP_API_URL\ = \"$APIURL\">> .env.test'
+  - 'echo \REACT_APP_LINKEDIN_CLIENT_ID\ = \"$LINKEDINCLIENTID\">> .env.test'
+  - 'echo \REACT_APP_STRIPE_KEY\ = \"$REACT_APP_STRIPE_TEST_KEY\">> .env.test'
+  - 'echo \REACT_APP_DEPLOY_ENV\ = \"$TREACT_APP_DEPLOY_ENV\">> .env.test'
+  - 'echo \REACT_APP_FEATURE_CUSTOM_PARAMETER\ = \"$TREACT_APP_FEATURE_CUSTOM_PARAMETER\">> .env.test'
+  - 'echo \REACT_APP_FEATURE_STORED_PROCS\ = \"$TREACT_APP_FEATURE_STORED_PROCS\">> .env.test'
+  - 'echo \REACT_APP_AES_ENCRYPTION_KEY\ = \"$LOWER_AES_ENCRYPTION_KEY\">> .env.test'
+  - 'echo \REACT_APP_GOOGLE_CLIENT_ID\ = \"$LOWER_GOOGLE_CLIENT_ID\">> .env.test'
+  - 'echo \REACT_APP_GITHUB_CLIENT_ID\ = \"$TEST_GITHUB_CLIENT_ID\">> .env.test'
+  - 'echo \REACT_APP_REDIRECT_URI\ = \"$TEST_APP_REDIRECT_URI\">> .env.test'
+  - 'echo \REACT_APP_SAMPLE_PROJ_LIMIT\ = \"$TEST_SAMPLE_PROJ_LIMIT\">> .env.test'
+  - 'echo \REACT_APP_DISABLE_DDL\ = \"$TEST_DISABLE_DDL\">> .env.test'
+  - 'echo \REACT_APP_SOCKET_URI\ = \"$TEST_SOCKET_URI\">> .env.test'
+  - 'echo \REACT_APP_DISABLE_AGGREGATE\ = \"$TEST_DISABLE_AGGREGATE\">> .env.test'
+  - 'echo \REACT_APP_DISABLE_APIGOV\ = \"$TEST_DISABLE_APIGOV\">> .env.test'
+  - 'echo \REACT_APP_DISABLE_ORACLEDB\ = \"$TEST_DISABLE_ORACLEDB\">> .env.test'
+  - 'echo \REACT_APP_DISPLAY_COLLECTIONS\ = \"$TEST_DISPLAY_COLLECTIONS\">> .env.test'
+  - 'echo \REACT_APP_PROXY_URL\ = \"$LOWER_REACT_APP_PROXY_URL\">> .env.test'
+  -  cat .env.test
+  - 'echo \REACT_APP_API_URL\ = \"$SAPIURL\">> .env.stage'
+  - 'echo \REACT_APP_LINKEDIN_CLIENT_ID\ = \"$SLINKEDINCLIENTID\">> .env.stage'
+  - 'echo \REACT_APP_STRIPE_KEY\ = \"$REACT_APP_STRIPE_TEST_KEY\">> .env.stage'
+  - 'echo \REACT_APP_DEPLOY_ENV\ = \"$SREACT_APP_DEPLOY_ENV\">> .env.stage'
+  - 'echo \REACT_APP_FEATURE_CUSTOM_PARAMETER\ = \"$SREACT_APP_FEATURE_CUSTOM_PARAMETER\">> .env.stage'
+  - 'echo \REACT_APP_FEATURE_STORED_PROCS\ = \"$SREACT_APP_FEATURE_STORED_PROCS\">> .env.stage'
+  - 'echo \REACT_APP_AES_ENCRYPTION_KEY\ = \"$LOWER_AES_ENCRYPTION_KEY\">> .env.stage'
+  - 'echo \REACT_APP_GOOGLE_CLIENT_ID\ = \"$LOWER_GOOGLE_CLIENT_ID\">> .env.stage'
+  - 'echo \REACT_APP_GITHUB_CLIENT_ID\ = \"$TEST_GITHUB_CLIENT_ID\">> .env.stage'
+  - 'echo \REACT_APP_REDIRECT_URI\ = \"$STAGE_APP_REDIRECT_URI\">> .env.stage'
+  - 'echo \REACT_APP_SAMPLE_PROJ_LIMIT\ = \"$TEST_SAMPLE_PROJ_LIMIT\">> .env.stage'
+  - 'echo \REACT_APP_DISABLE_DDL\ = \"$STAGE_DISABLE_DDL\">> .env.stage'
+  - 'echo \REACT_APP_SOCKET_URI\ = \"$STAGE_SOCKET_URI\">> .env.stage'
+  - 'echo \REACT_APP_DISABLE_AGGREGATE\ = \"$STAGE_DISABLE_AGGREGATE\">> .env.stage'
+  - 'echo \REACT_APP_DISABLE_APIGOV\ = \"$STAGE_DISABLE_APIGOV\">> .env.stage'
+  - 'echo \REACT_APP_DISABLE_ORACLEDB\ = \"$STAGE_DISABLE_ORACLEDB\">> .env.stage'
+  - 'echo \REACT_APP_DISPLAY_COLLECTIONS\ = \"$STAGE_DISPLAY_COLLECTIONS\">> .env.stage'
+  - 'echo \REACT_APP_PROXY_URL\ = \"$LOWER_REACT_APP_PROXY_URL\">> .env.stage'
+  -  cat .env.stage
+  - 'echo \REACT_APP_API_URL\ = \"$PAPIURL\">> .env.prod'
+  - 'echo \REACT_APP_LINKEDIN_CLIENT_ID\ = \"$PLINKEDINCLIENTID\">> .env.prod'
+  - 'echo \REACT_APP_STRIPE_KEY\ = \"$REACT_APP_STRIPE_KEY\">> .env.prod'
+  - 'echo \REACT_APP_DEPLOY_ENV\ = \"$PREACT_APP_DEPLOY_ENV\">> .env.prod'
+  - 'echo \REACT_APP_FEATURE_CUSTOM_PARAMETER\ = \"$PREACT_APP_FEATURE_CUSTOM_PARAMETER\">> .env.prod'
+  - 'echo \REACT_APP_FEATURE_STORED_PROCS\ = \"$PREACT_APP_FEATURE_STORED_PROCS\">> .env.prod'
+  - 'echo \REACT_APP_AES_ENCRYPTION_KEY\ = \"$PROD_AES_ENCRYPTION_KEY\">> .env.prod'
+  - 'echo \REACT_APP_GOOGLE_CLIENT_ID\ = \"$PROD_GOOGLE_CLIENT_ID\">> .env.prod'
+  - 'echo \REACT_APP_GITHUB_CLIENT_ID\ = \"$PROD_GITHUB_CLIENT_ID\">> .env.prod'
+  - 'echo \REACT_APP_REDIRECT_URI\ = \"$PROD_APP_REDIRECT_URI\">> .env.prod'
+  - 'echo \REACT_APP_SAMPLE_PROJ_LIMIT\ = \"$PROD_SAMPLE_PROJ_LIMIT\">> .env.prod'
+  - 'echo \REACT_APP_DISABLE_DDL\ = \"$PROD_DISABLE_DDL\">> .env.prod'
+  - 'echo \REACT_APP_SOCKET_URI\ = \"$PROD_SOCKET_URI\">> .env.prod'
+  - 'echo \REACT_APP_DISABLE_AGGREGATE\ = \"$PROD_DISABLE_AGGREGATE\">> .env.prod'
+  - 'echo \REACT_APP_DISABLE_APIGOV\ = \"$PROD_DISABLE_APIGOV\">> .env.prod'
+  - 'echo \REACT_APP_DISABLE_ORACLEDB\ = \"$PROD_DISABLE_ORACLEDB\">> .env.prod'
+  - 'echo \REACT_APP_DISPLAY_COLLECTIONS\ = \"$PROD_DISPLAY_COLLECTIONS\">> .env.prod'
+  - 'echo \REACT_APP_PROXY_URL\ = \"$PROD_REACT_APP_PROXY_URL\">> .env.prod'
+  -  cat .env.prod
+include:
+  project: 'ezapi_poc/infra_poc'
+  file:
+    #- 'sast-whitesource-reactui.yaml'
+    - 'reactuicitest.yml'
+    - 'reactuicistage.yaml'
+    - 'reactuiciprod.yaml'
+    - 'reactuicitestNew.yaml'
+    - 'deploy-react-test-1.yaml'
+    - 'deploy-reactui-demo-1.yaml'
+    - 'deploy-reactui-instance-1.yaml'
+    - 'deploy-reactui-testNew.yaml'
+stages:
+  #- Sast-Whitesource
+  - build-test
+  - build-stage
+  - build-prod
+  - build-testNew
+  - deploy-test1
+  - deploy-demo1
+  - deploy-instance1
+  - deploy-testNew
+# Sast-Whitesource:
+#   stage: Sast-Whitesource
+#   image: ubuntu:18.04
+#   extends: .sast-whitesource
+#   only:
+#     - test
+build-stage:
+  tags: [ saas-linux-medium-amd64 ]
+  stage: build-stage
+  extends: .build-stage
+  only:
+    - feature/aggregate-apis
+    - stage
+build-test:
+  stage: build-test
+  extends: .build-test
+  only:
+    - test
+build-prod:
+  stage: build-prod
+  extends: .build-prod
+  only:
+    - master
+build-testNew:
+  tags: [ saas-linux-medium-amd64 ]
+  stage: build-testNew
+  extends: .build-testNew
+  only:
+    - test-new
+deploy-test1:
+  stage: deploy-test1
+  image: alpine
+  extends: .deploy-test1
+  only:
+    - test
+deploy-demo1:
+  stage: deploy-demo1
+  image: alpine
+  extends: .deploy-demo1
+  only:
+    - feature/aggregate-apis
+    - stage
+deploy-instance1:
+  stage: deploy-instance1
+  image: alpine
+  extends: .deploy-instance1
+  only:
+    - master
+deploy-testNew:
+  stage: deploy-testNew
+  image: alpine
+  extends: .deploy-testNew
+  only:
+    - test-new

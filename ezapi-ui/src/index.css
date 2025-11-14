@@ -1,0 +1,130 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  font-size: 16px;
+}
+
+body {
+  @apply font-sans;
+}
+
+p {
+  @apply font-normal;
+  line-height: 1.25;
+}
+
+h1 {
+  @apply font-bold;
+  font-size: 2.5rem;
+  line-height: 1.35;
+}
+
+h2 {
+  @apply font-semibold;
+  font-size: 2.25rem;
+  line-height: 1.33;
+}
+
+h3 {
+  @apply font-semibold;
+  font-size: 2rem;
+  line-height: 1.31;
+}
+
+h4 {
+  @apply font-medium;
+  font-size: 1.5rem;
+  line-height: 1.33;
+}
+
+h5,
+.text-subtitle1 {
+  @apply font-medium;
+  font-size: 1.25rem;
+  line-height: 1.375;
+}
+
+h6,
+.text-subtitle2 {
+  @apply font-medium;
+  font-size: 1.125rem;
+  line-height: 1.375;
+}
+
+.text-body1 {
+  @apply font-normal;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.text-body2 {
+  @apply font-normal;
+  font-size: 0.875rem;
+  line-height: 1.57;
+}
+
+.text-capitalised {
+  @apply font-bold;
+  font-size: 0.625rem;
+  line-height: 1.57;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.text-tiny {
+  @apply font-bold;
+  font-size: 0.625rem;
+  line-height: 1.4;
+}
+
+.text-small {
+  @apply font-bold;
+  font-size: 0.875rem;
+  line-height: 1.57;
+}
+
+.text-smallLabel {
+  @apply font-bold;
+  font-size: 0.75rem;
+  line-height: 1.57;
+}
+
+.text-largeLabel {
+  @apply font-semibold;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.text-mediumLabel {
+  @apply font-semibold;
+  font-size: 0.875rem;
+  line-height: 1.375;
+}
+
+.text-lead2 {
+  @apply font-medium;
+  font-size: 0.875rem;
+  line-height: 1.42;
+}
+
+.text-overline1 {
+  @apply font-medium;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.text-overline2 {
+  @apply font-medium;
+  font-size: 0.875rem;
+  line-height: 1.375;
+}
+
+.text-overline3 {
+  @apply font-medium;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}

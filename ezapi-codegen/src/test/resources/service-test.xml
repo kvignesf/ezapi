@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- <!DOCTYPE suite SYSTEM "http://testng.org/testng-2.4.dtd" > -->
+<suite name="App-Test-Automation(MOCK)" preserve-order="true">
+	<!-- <listeners>
+		<listener
+			class-name="com.pkrm.api.frmwk.report.ServiceExtentReporter" />
+		<listener
+			class-name="com.pkrm.api.frmwk.service.listeners.TestListener" />
+
+	</listeners> -->
+
+	<test name="Service Automation" enabled="true"
+		preserve-order="true">
+		<classes>
+			<class name="com.pkrm.api.frmwk.service.test.ServiceTest"></class>
+		</classes>
+	</test>
+</suite>

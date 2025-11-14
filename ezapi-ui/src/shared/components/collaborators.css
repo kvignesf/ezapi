@@ -1,0 +1,12 @@
+.button-collabmsg {
+    background: none!important;
+    border: none;
+    padding: 0!important;
+    font-weight: bold;
+    /*optional*/
+    font-family: arial, sans-serif;
+    /*input has OS specific font-family*/
+    color: #2C71C7;
+    text-decoration: underline;
+    cursor: pointer;
+  }
