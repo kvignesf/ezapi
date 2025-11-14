@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout the repo with full history (needed for Husky if running locally)
+      # 1. Checkout the repo
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -20,16 +20,16 @@ jobs:
       - name: Build React UI
         working-directory: ezapi-ui
         env:
-          HUSKY: 0  # Completely disable Husky in CI
-          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
-          REACT_APP_AES_ENCRYPTION_KEY: ${{ secrets.REACT_APP_AES_ENCRYPTION_KEY }}
-          REACT_APP_LINKEDIN_CLIENT_ID: ${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID }}
-          REACT_APP_STRIPE_KEY: ${{ secrets.REACT_APP_STRIPE_KEY }}
+          HUSKY: 0
         run: |
-          echo "REACT_APP_API_URL=$REACT_APP_API_URL" > .env
-          echo "REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY" >> .env
-          echo "REACT_APP_LINKEDIN_CLIENT_ID=$REACT_APP_LINKEDIN_CLIENT_ID" >> .env
-          echo "REACT_APP_STRIPE_KEY=$REACT_APP_STRIPE_KEY" >> .env
+          echo "Building React UI..."
+          # Create .env file
+          cat > .env << EOF
+          REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL || '' }}
+          REACT_APP_AES_ENCRYPTION_KEY=${{ secrets.REACT_APP_AES_ENCRYPTION_KEY || '' }}
+          REACT_APP_LINKEDIN_CLIENT_ID=${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID || '' }}
+          REACT_APP_STRIPE_KEY=${{ secrets.REACT_APP_STRIPE_KEY || '' }}
+          EOF
           npm install
           npm run build
 
@@ -45,122 +45,55 @@ jobs:
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 5. Setup Python 3.10 and install system dependencies
-      - name: Setup Python and System Dependencies
+      # 5. Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 6. Install system dependencies for Python packages
+      # 6. Install system dependencies
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            unixodbc \
-            unixodbc-dev \
-            build-essential \
-            libssl-dev \
-            libffi-dev \
-            python3-dev \
-            g++
+          sudo apt-get install -y unixodbc unixodbc-dev build-essential
 
       # 7. Build Python Miner
       - name: Build Python Miner
         working-directory: ezapi-miner
         run: |
-          # List files to verify the directory contents
-          ls -la
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip setuptools wheel
-          # Use the correct filename (REQUIREMENTS.txt instead of requirements.txt)
           pip install -r REQUIREMENTS.txt
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*"
 
-      # 8. Debug SSH Secrets
-      - name: Debug SSH Secrets
-        run: |
-          echo "=== Checking SSH Secrets ==="
-          echo "EC2_SSH_KEY length: ${#EC2_SSH_KEY}"
-          echo "EC2_HOST: '$EC2_HOST'"
-          echo "EC2_USER: '$EC2_USER'"
-          echo "DEPLOY_HOST: '$DEPLOY_HOST'"
-          echo "DEPLOY_USER: '$DEPLOY_USER'"
-          echo "DEPLOY_PASSWORD length: ${#DEPLOY_PASSWORD}"
-          
-          # Check which host to use (EC2_HOST or DEPLOY_HOST)
-          if [ -n "$EC2_HOST" ]; then
-            echo "✅ Using EC2_HOST: $EC2_HOST"
-            TARGET_HOST="$EC2_HOST"
-            TARGET_USER="$EC2_USER"
-          elif [ -n "$DEPLOY_HOST" ]; then
-            echo "✅ Using DEPLOY_HOST: $DEPLOY_HOST"
-            TARGET_HOST="$DEPLOY_HOST"
-            TARGET_USER="$DEPLOY_USER"
-          else
-            echo "❌ ERROR: No host specified in secrets!"
-            exit 1
-          fi
-          
-          echo "Target: $TARGET_USER@$TARGET_HOST"
-
-      # 9. Setup SSH key and known hosts
+      # 8. Setup SSH
       - name: Setup SSH
-        env:
-          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          if [ -z "$EC2_SSH_KEY" ]; then
-            echo "❌ ERROR: EC2_SSH_KEY secret is empty!"
-            exit 1
-          fi
-          
-          if [ -z "$EC2_HOST" ]; then
-            echo "❌ ERROR: EC2_HOST secret is empty!"
-            exit 1
-          fi
-          
           mkdir -p ~/.ssh
-          echo "$EC2_SSH_KEY" > ~/.ssh/id_rsa
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          echo "✅ SSH private key setup complete"
-          
-          echo "Adding known host: $EC2_HOST"
-          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-          echo "✅ Known hosts setup complete"
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # 10. Deploy to EC2
+      # 9. Deploy to EC2
       - name: Deploy to EC2
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          DEPLOY_BASE: "/home/${{ secrets.EC2_USER }}/ezapi"  # Default deployment path
+          DEPLOY_BASE: "/home/ubuntu/ezapi"
         run: |
-          echo "🚀 Starting deployment to $EC2_USER@$EC2_HOST:$DEPLOY_BASE"
+          echo "Deploying to $EC2_USER@$EC2_HOST:$DEPLOY_BASE"
           
-          # Test SSH connection
-          echo "Testing SSH connection..."
-          ssh -o BatchMode=yes -o ConnectTimeout=10 $EC2_USER@$EC2_HOST "echo '✅ SSH connection successful'"
+          # Test connection
+          ssh $EC2_USER@$EC2_HOST "echo 'Connection successful'"
           
-          # Create directories on EC2
-          echo "Creating deployment directories..."
+          # Create directories
           ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/ui $DEPLOY_BASE/codegen $DEPLOY_BASE/miner"
           
-          # Deploy React UI
-          echo "Deploying React UI..."
-          rsync -avz -e "ssh -o StrictHostKeyChecking=no" ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
+          # Deploy files
+          rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
+          rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
+          rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
           
-          # Deploy Java Codegen
-          echo "Deploying Java Codegen..."
-          rsync -avz -e "ssh -o StrictHostKeyChecking=no" ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
-          
-          # Deploy Python Miner
-          echo "Deploying Python Miner..."
-          rsync -avz -e "ssh -o StrictHostKeyChecking=no" python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
-          
-          # Optional: List deployed files
-          echo "Listing deployed files:"
-          ssh $EC2_USER@$EC2_HOST "find $DEPLOY_BASE -type f | head -20"
-          
-          echo "✅ Deployment completed successfully!"
+          echo "Deployment completed!"
