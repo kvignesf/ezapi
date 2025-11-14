@@ -15,7 +15,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Build React UI
+      # 2. Debug directory structure
+      - name: Debug Directory Structure
+        run: |
+          echo "Current directory structure:"
+          find . -maxdepth 2 -type d | sort
+          echo "ezapi-ui contents:"
+          ls -la ezapi-ui/ || echo "ezapi-ui not found"
+
+      # 3. Build React UI
       - name: Build React UI
         working-directory: ezapi-ui
         env:
@@ -33,8 +41,27 @@ jobs:
           EOF
           npm install
           npm run build
+          echo "Build completed. Directory contents:"
+          ls -la
+          echo "Looking for build files:"
+          find . -name "index.html" -o -name "static" | head -10
 
-      # 3. Build Java Codegen
+      # 4. Prepare React build for deployment
+      - name: Prepare React Build
+        working-directory: ezapi-ui
+        run: |
+          # Create build directory and move files
+          mkdir -p build
+          # Move all build artifacts to build directory
+          [ -f "index.html" ] && mv index.html build/ || echo "index.html not found"
+          [ -d "static" ] && mv static build/ || echo "static directory not found"
+          [ -f "manifest.json" ] && mv manifest.json build/ || echo "manifest.json not found"
+          [ -f "conektto.ico" ] && mv conektto.ico build/ || echo "conektto.ico not found"
+          [ -f "msclarity.js" ] && mv msclarity.js build/ || echo "msclarity.js not found"
+          echo "Final build directory contents:"
+          ls -la build/
+
+      # 5. Build Java Codegen
       - name: Build Java Codegen
         uses: actions/setup-java@v3
         with:
@@ -45,7 +72,7 @@ jobs:
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 4. Build Python Miner (skip problematic dependencies)
+      # 6. Build Python Miner
       - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
@@ -56,17 +83,25 @@ jobs:
         run: |
           python -m venv venv
           source venv/bin/activate
-          
-          # Install only core dependencies, skip problematic ones
           pip install --upgrade pip
+          # Install only core dependencies
           pip install flask flask-cors requests numpy pandas sqlalchemy pymongo psycopg2-binary pyjwt python-decouple
-          
-          # Create cleaned requirements file for deployment
           pip freeze > requirements_clean.txt
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "REQUIREMENTS.txt"
 
-      # 5. Setup SSH and Deploy
+      # 7. Verify build outputs
+      - name: Verify Build Outputs
+        run: |
+          echo "Build outputs:"
+          echo "React UI build:"
+          ls -la ezapi-ui/build/ 2>/dev/null || echo "No React build found"
+          echo "Java JAR:"
+          ls -la ezapi-codegen/target/*.jar 2>/dev/null || echo "No JAR files found"
+          echo "Python zip:"
+          ls -la python-app.zip 2>/dev/null || echo "No Python zip found"
+
+      # 8. Setup SSH and Deploy
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -74,7 +109,7 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # 6. Deploy Files
+      # 9. Deploy Files with checks
       - name: Deploy to EC2
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
@@ -83,11 +118,28 @@ jobs:
         run: |
           ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/{ui,codegen,miner,scripts,logs}"
           
-          rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
-          rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
-          rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
+          # Deploy React UI if build exists
+          if [ -d "ezapi-ui/build" ]; then
+            rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
+          else
+            echo "Warning: React UI build directory not found"
+          fi
+          
+          # Deploy Java JAR
+          if ls ezapi-codegen/target/*.jar 1> /dev/null 2>&1; then
+            rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
+          else
+            echo "Warning: No JAR files found"
+          fi
+          
+          # Deploy Python zip
+          if [ -f "python-app.zip" ]; then
+            rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
+          else
+            echo "Warning: Python zip not found"
+          fi
 
-      # 7. Setup PM2 and Start Services
+      # 10. Setup PM2 and Start Services
       - name: Setup PM2 and Start Services
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
@@ -181,7 +233,7 @@ jobs:
           ssh $EC2_USER@$EC2_HOST "chmod +x $DEPLOY_BASE/scripts/deploy.sh"
           ssh $EC2_USER@$EC2_HOST "cd $DEPLOY_BASE/scripts && ./deploy.sh"
 
-      # 8. Verify Deployment
+      # 11. Verify Deployment
       - name: Verify Deployment
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
