@@ -8,13 +8,12 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       # 1. Checkout repository
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       # 2. Build React UI
       - name: Build React UI
@@ -41,43 +40,33 @@ jobs:
           [ -f "conektto.ico" ] && mv conektto.ico build/ || true
           [ -f "msclarity.js" ] && mv msclarity.js build/ || true
 
-      # 3. Setup Java JDK 17
-      - name: Set up JDK 17
+      # 3. Build Java Codegen
+      - name: Build Java Codegen
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
-
-      # 4. Build Java Codegen
-      - name: Build Java Codegen
+      
+      - name: Build Java JAR
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 5. Setup Python
-      - name: Setup Python
+      # 4. Build Python Miner
+      - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
-      # 6. Install system dependencies
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unixodbc unixodbc-dev build-essential
-
-      # 7. Build Python Miner
-      - name: Build Python Miner
+      
+      - name: Install Python Dependencies
         working-directory: ezapi-miner
         run: |
           python -m venv venv
           source venv/bin/activate
-          pip install --upgrade pip setuptools wheel
           pip install -r REQUIREMENTS.txt
-          pip freeze > requirements_frozen.txt
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*"
 
-      # 8. Setup SSH
+      # 5. Setup SSH and Deploy
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -85,190 +74,130 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # 9. Deploy to EC2
+      # 6. Deploy Files
       - name: Deploy to EC2
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
           DEPLOY_BASE: "/home/ubuntu/ezapi"
         run: |
-          echo "Deploying to $EC2_USER@$EC2_HOST:$DEPLOY_BASE"
-          
-          ssh $EC2_USER@$EC2_HOST "echo 'SSH connection successful'"
-          ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/ui $DEPLOY_BASE/codegen $DEPLOY_BASE/miner $DEPLOY_BASE/scripts"
+          ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/{ui,codegen,miner,scripts}"
           
           rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
           rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
           rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
 
-      # 10. Deploy startup scripts
-      - name: Deploy Startup Scripts
+      # 7. Setup PM2 and Start Services
+      - name: Setup PM2 and Start Services
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
           DEPLOY_BASE: "/home/ubuntu/ezapi"
         run: |
-          cat > start_services.sh << 'EOF'
+          # Create PM2 ecosystem file
+          cat > ecosystem.config.js << 'EOF'
+          module.exports = {
+            apps: [
+              {
+                name: 'java-codegen',
+                cwd: '/home/ubuntu/ezapi/codegen',
+                script: 'java',
+                args: ['-jar', 'java_codgen_api-0.0.1-SNAPSHOT.jar'],
+                env: {
+                  NODE_ENV: 'production'
+                },
+                error_file: '/home/ubuntu/ezapi/logs/java-err.log',
+                out_file: '/home/ubuntu/ezapi/logs/java-out.log',
+                log_file: '/home/ubuntu/ezapi/logs/java-combined.log',
+                time: true
+              },
+              {
+                name: 'python-miner',
+                cwd: '/home/ubuntu/ezapi/miner',
+                script: 'python3',
+                args: ['app.py'],
+                interpreter: 'none',
+                env: {
+                  NODE_ENV: 'production'
+                },
+                error_file: '/home/ubuntu/ezapi/logs/python-err.log',
+                out_file: '/home/ubuntu/ezapi/logs/python-out.log',
+                log_file: '/home/ubuntu/ezapi/logs/python-combined.log',
+                time: true
+              },
+              {
+                name: 'react-ui',
+                cwd: '/home/ubuntu/ezapi/ui',
+                script: 'python3',
+                args: ['-m', 'http.server', '8000'],
+                interpreter: 'none',
+                env: {
+                  NODE_ENV: 'production'
+                },
+                error_file: '/home/ubuntu/ezapi/logs/ui-err.log',
+                out_file: '/home/ubuntu/ezapi/logs/ui-out.log',
+                log_file: '/home/ubuntu/ezapi/logs/ui-combined.log',
+                time: true
+              }
+            ]
+          }
+          EOF
+
+          # Create startup script
+          cat > deploy.sh << 'EOF'
           #!/bin/bash
           DEPLOY_BASE="/home/ubuntu/ezapi"
           
+          # Create log directory
           sudo mkdir -p /var/app/ezapi_java_code_gen/logs/
           sudo chown ubuntu:ubuntu /var/app/ezapi_java_code_gen/logs/
+          mkdir -p $DEPLOY_BASE/logs
           
-          pkill -f "java -jar.*java_codgen_api" || true
-          pkill -f "python3 app.py" || true
-          pkill -f "python3 -m http.server" || true
-          sleep 2
-          
-          cd $DEPLOY_BASE/codegen
-          nohup java -jar java_codgen_api-0.0.1-SNAPSHOT.jar > java_app.log 2>&1 &
-          echo $! > java_app.pid
-          
+          # Extract Python app
           cd $DEPLOY_BASE/miner
           unzip -o python-app.zip > /dev/null 2>&1
           
-          # Install Python 3.10 (compatible with all dependencies)
-          sudo apt-get update
-          sudo apt-get install -y python3.10 python3.10-venv python3.10-dev build-essential
-          
-          # Use Python 3.10 specifically for compatibility
-          python3.10 -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip setuptools wheel
-          
-          # Install core dependencies first
-          pip install flask==2.1.2
-          pip install flask-cors==3.0.8
-          pip install requests==2.24.0
-          pip install numpy==1.22.3
-          pip install pandas==1.4.2
-          pip install scipy==1.8.0
-          pip install sqlalchemy==2.0.7
-          pip install pymongo==3.11.0
-          pip install psycopg2-binary==2.9.3
-          pip install pyjwt==2.4.0
-          pip install python-decouple==3.4
-          
-          # Skip problematic Oracle dependencies if not critical
-          # pip install cx-oracle==8.3.0
-          # pip install oracledb==1.3.0
-          
-          # Install remaining dependencies from requirements file, skipping Oracle
-          if [ -f "REQUIREMENTS.txt" ]; then
-              # Create a temporary requirements file without Oracle packages
-              grep -v -E "cx-oracle|oracledb" REQUIREMENTS.txt > requirements_no_oracle.txt
-              pip install -r requirements_no_oracle.txt
-              rm -f requirements_no_oracle.txt
+          # Install PM2 globally
+          if ! command -v pm2 &> /dev/null; then
+            npm install -g pm2
+            pm2 startup
           fi
           
-          # Test if the app can start without Oracle dependencies
-          if python3 -c "import app" 2>/dev/null; then
-              nohup python3 app.py > python_app.log 2>&1 &
-              echo $! > python_app.pid
-              echo "Python application started successfully"
-          else
-              echo "Warning: Python application may have import issues"
-              # Start anyway to see actual errors in logs
-              nohup python3 app.py > python_app.log 2>&1 &
-              echo $! > python_app.pid
+          # Install Python dependencies
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install -r REQUIREMENTS.txt
           fi
           
-          cd $DEPLOY_BASE/ui
-          nohup python3 -m http.server 8000 > ui_server.log 2>&1 &
-          echo $! > ui_server.pid
+          # Deploy ecosystem file
+          cp $DEPLOY_BASE/scripts/ecosystem.config.js .
+          
+          # Stop existing services and start with PM2
+          pm2 delete all || true
+          pm2 start ecosystem.config.js
+          pm2 save
+          pm2 status
           EOF
 
-          cat > check_services.sh << 'EOF'
-          #!/bin/bash
-          echo "EZAPI Services Status:"
-          echo "======================"
+          # Deploy scripts
+          scp ecosystem.config.js $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
+          scp deploy.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
           
-          if ps aux | grep -q "[j]ava -jar.*java_codgen_api"; then
-              echo "Java Codegen API:  RUNNING"
-          else
-              echo "Java Codegen API:  STOPPED"
-          fi
-          
-          if ps aux | grep -q "[p]ython3 app.py"; then
-              echo "Python Miner API:  RUNNING"
-          else
-              echo "Python Miner API:  STOPPED"
-          fi
-          
-          if ps aux | grep -q "[p]ython3 -m http.server 8000"; then
-              echo "React UI Server:  RUNNING"
-          else
-              echo "React UI Server:  STOPPED"
-          fi
-          
-          echo "======================"
-          echo "Access URLs:"
-          echo "React UI:    http://$(curl -s ifconfig.me):8000"
-          echo "Java API:    http://$(curl -s ifconfig.me):8080"
-          echo "Python API:  http://$(curl -s ifconfig.me):5000"
-          EOF
+          ssh $EC2_USER@$EC2_HOST "chmod +x $DEPLOY_BASE/scripts/deploy.sh"
+          ssh $EC2_USER@$EC2_HOST "cd $DEPLOY_BASE/scripts && ./deploy.sh"
 
-          cat > check_logs.sh << 'EOF'
-          #!/bin/bash
-          DEPLOY_BASE="/home/ubuntu/ezapi"
-          echo "Recent Logs:"
-          echo "Java Logs:"
-          tail -10 $DEPLOY_BASE/codegen/java_app.log 2>/dev/null || echo "No Java logs found"
-          echo ""
-          echo "Python Logs:"
-          tail -10 $DEPLOY_BASE/miner/python_app.log 2>/dev/null || echo "No Python logs found"
-          echo ""
-          echo "UI Logs:"
-          tail -10 $DEPLOY_BASE/ui/ui_server.log 2>/dev/null || echo "No UI logs found"
-          EOF
-
-          cat > stop_services.sh << 'EOF'
-          #!/bin/bash
-          echo "Stopping EZAPI Services..."
-          pkill -f "java -jar.*java_codgen_api" || true
-          pkill -f "python3 app.py" || true
-          pkill -f "python3 -m http.server 8000" || true
-          echo "All services stopped"
-          EOF
-
-          ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/scripts"
-          scp start_services.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
-          scp check_services.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
-          scp check_logs.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
-          scp stop_services.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
-          
-          ssh $EC2_USER@$EC2_HOST "chmod +x $DEPLOY_BASE/scripts/*.sh"
-          ssh $EC2_USER@$EC2_HOST "ln -sf $DEPLOY_BASE/scripts/start_services.sh ~/start_ezapi.sh"
-          ssh $EC2_USER@$EC2_HOST "ln -sf $DEPLOY_BASE/scripts/check_services.sh ~/check_ezapi.sh"
-          ssh $EC2_USER@$EC2_HOST "ln -sf $DEPLOY_BASE/scripts/stop_services.sh ~/stop_ezapi.sh"
-
-      # 11. Start services on EC2
-      - name: Start Services on EC2
-        env:
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          DEPLOY_BASE: "/home/ubuntu/ezapi"
-        run: |
-          ssh $EC2_USER@$EC2_HOST "cd $DEPLOY_BASE/scripts && ./start_services.sh"
-          sleep 10
-          ssh $EC2_USER@$EC2_HOST "cd $DEPLOY_BASE/scripts && ./check_services.sh"
-
-      # 12. Final verification
-      - name: Final Verification
+      # 8. Verify Deployment
+      - name: Verify Deployment
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          echo "Deployment Complete"
-          echo "=================="
-          echo "All artifacts deployed"
-          echo "Services started"
-          echo "Access your application at:"
+          echo "Checking service status..."
+          ssh $EC2_USER@$EC2_HOST "pm2 status"
+          
+          echo "Deployment completed successfully"
+          echo "Services running on:"
           echo "React UI:    http://$EC2_HOST:8000"
           echo "Java API:    http://$EC2_HOST:8080"
           echo "Python API:  http://$EC2_HOST:5000"
-          echo ""
-          echo "Management commands on EC2:"
-          echo "~/start_ezapi.sh    - Start all services"
-          echo "~/check_ezapi.sh    - Check service status"
-          echo "~/stop_ezapi.sh     - Stop all services"
