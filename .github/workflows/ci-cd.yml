@@ -27,7 +27,7 @@ jobs:
           npm install
           npm run build
         env:
-          HUSKY_SKIP_INSTALL: 1  # Skip Husky install in CI to avoid errors
+          HUSKY_SKIP_INSTALL: 1  # Skip Husky installation in CI
 
       # 3. Set up JDK 17 for Java build
       - name: Set up JDK 17
