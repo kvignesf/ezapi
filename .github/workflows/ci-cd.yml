@@ -10,9 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout the repository
+      # 1. Checkout the repository with full Git history for Husky support
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # 2. Build React UI
       - name: Build React UI
@@ -24,6 +26,8 @@ jobs:
           echo "REACT_APP_STRIPE_KEY=${{ secrets.REACT_APP_STRIPE_KEY }}" >> .env
           npm install
           npm run build
+        env:
+          HUSKY_SKIP_INSTALL: 1  # Skip Husky install in CI to avoid errors
 
       # 3. Set up JDK 17 for Java build
       - name: Set up JDK 17
