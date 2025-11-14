@@ -1,4 +1,4 @@
-name: EZAPI Build, Deploy & Start Services
+name: EZAPI Build and Deploy
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout the repo
+      # 1. Checkout repository
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -21,18 +21,20 @@ jobs:
         working-directory: ezapi-ui
         env:
           HUSKY: 0
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
+          REACT_APP_AES_ENCRYPTION_KEY: ${{ secrets.REACT_APP_AES_ENCRYPTION_KEY }}
+          REACT_APP_LINKEDIN_CLIENT_ID: ${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID }}
+          REACT_APP_STRIPE_KEY: ${{ secrets.REACT_APP_STRIPE_KEY }}
         run: |
-          echo "Building React UI with Webpack..."
           cat > .env << EOF
-          REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL || '' }}
-          REACT_APP_AES_ENCRYPTION_KEY=${{ secrets.REACT_APP_AES_ENCRYPTION_KEY || '' }}
-          REACT_APP_LINKEDIN_CLIENT_ID=${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID || '' }}
-          REACT_APP_STRIPE_KEY=${{ secrets.REACT_APP_STRIPE_KEY || '' }}
+          REACT_APP_API_URL=$REACT_APP_API_URL
+          REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY
+          REACT_APP_LINKEDIN_CLIENT_ID=$REACT_APP_LINKEDIN_CLIENT_ID
+          REACT_APP_STRIPE_KEY=$REACT_APP_STRIPE_KEY
           EOF
           npm install
           npm run build
           mkdir -p build
-          # Move webpack output to build directory
           [ -f "index.html" ] && mv index.html build/ || true
           [ -d "static" ] && mv static build/ || true
           [ -f "manifest.json" ] && mv manifest.json build/ || true
@@ -71,6 +73,7 @@ jobs:
           source venv/bin/activate
           pip install --upgrade pip setuptools wheel
           pip install -r REQUIREMENTS.txt
+          pip freeze > requirements_frozen.txt
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*"
 
@@ -89,116 +92,86 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           DEPLOY_BASE: "/home/ubuntu/ezapi"
         run: |
-          echo "🚀 Deploying to $EC2_USER@$EC2_HOST:$DEPLOY_BASE"
+          echo "Deploying to $EC2_USER@$EC2_HOST:$DEPLOY_BASE"
           
-          # Test connection
-          ssh $EC2_USER@$EC2_HOST "echo '✅ SSH connection successful'"
-          
-          # Create deployment directories
+          ssh $EC2_USER@$EC2_HOST "echo 'SSH connection successful'"
           ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/ui $DEPLOY_BASE/codegen $DEPLOY_BASE/miner $DEPLOY_BASE/scripts"
           
-          # Deploy files
-          echo "📦 Deploying React UI..."
           rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
-          
-          echo "📦 Deploying Java Codegen..."
           rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
-          
-          echo "📦 Deploying Python Miner..."
           rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
 
-      # 10. Create and Deploy Startup Scripts
+      # 10. Deploy startup scripts
       - name: Deploy Startup Scripts
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
           DEPLOY_BASE: "/home/ubuntu/ezapi"
         run: |
-          echo "📜 Deploying startup scripts..."
-          
-          # Create main startup script
           cat > start_services.sh << 'EOF'
           #!/bin/bash
-          echo "🚀 Starting EZAPI Services..."
           DEPLOY_BASE="/home/ubuntu/ezapi"
           
-          # 1. Create Java log directory
           sudo mkdir -p /var/app/ezapi_java_code_gen/logs/
           sudo chown ubuntu:ubuntu /var/app/ezapi_java_code_gen/logs/
           
-          # 2. Stop any running services
-          echo "🛑 Stopping any existing services..."
           pkill -f "java -jar.*java_codgen_api" || true
           pkill -f "python3 app.py" || true
           pkill -f "python3 -m http.server" || true
           sleep 2
           
-          # 3. Start Java Codegen API
-          echo "☕ Starting Java Codegen API..."
           cd $DEPLOY_BASE/codegen
           nohup java -jar java_codgen_api-0.0.1-SNAPSHOT.jar > java_app.log 2>&1 &
-          JAVA_PID=$!
-          echo $JAVA_PID > java_app.pid
+          echo $! > java_app.pid
           
-          # 4. Start Python Miner API
-          echo "🐍 Starting Python Miner API..."
           cd $DEPLOY_BASE/miner
           unzip -o python-app.zip > /dev/null 2>&1
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r REQUIREMENTS.txt
           nohup python3 app.py > python_app.log 2>&1 &
-          PYTHON_PID=$!
-          echo $PYTHON_PID > python_app.pid
+          echo $! > python_app.pid
           
-          # 5. Start React UI
-          echo "⚛️  Starting React UI..."
           cd $DEPLOY_BASE/ui
           nohup python3 -m http.server 8000 > ui_server.log 2>&1 &
-          UI_PID=$!
-          echo $UI_PID > ui_server.pid
-          
-          echo "✅ Services started!"
-          echo "📊 Check status with: ./scripts/check_services.sh"
-          echo "📋 Check logs with: ./scripts/check_logs.sh"
+          echo $! > ui_server.pid
           EOF
-          
-          # Create service check script
+
           cat > check_services.sh << 'EOF'
           #!/bin/bash
-          echo "🔍 EZAPI Services Status:"
-          echo "=========================="
+          echo "EZAPI Services Status:"
+          echo "======================"
           
-          # Check Java
           if ps aux | grep -q "[j]ava -jar.*java_codgen_api"; then
-              echo "☕ Java Codegen API:  ✅ RUNNING"
+              echo "Java Codegen API:  RUNNING"
           else
-              echo "☕ Java Codegen API:  ❌ STOPPED"
+              echo "Java Codegen API:  STOPPED"
           fi
           
-          # Check Python
           if ps aux | grep -q "[p]ython3 app.py"; then
-              echo "🐍 Python Miner API:  ✅ RUNNING"
+              echo "Python Miner API:  RUNNING"
           else
-              echo "🐍 Python Miner API:  ❌ STOPPED"
+              echo "Python Miner API:  STOPPED"
           fi
           
-          # Check UI
           if ps aux | grep -q "[p]ython3 -m http.server 8000"; then
-              echo "⚛️  React UI Server:  ✅ RUNNING"
+              echo "React UI Server:  RUNNING"
           else
-              echo "⚛️  React UI Server:  ❌ STOPPED"
+              echo "React UI Server:  STOPPED"
           fi
           
-          echo "=========================="
-          echo "🌐 Access URLs:"
+          echo "======================"
+          echo "Access URLs:"
           echo "React UI:    http://$(curl -s ifconfig.me):8000"
           echo "Java API:    http://$(curl -s ifconfig.me):8080"
           echo "Python API:  http://$(curl -s ifconfig.me):5000"
           EOF
-          
-          # Create log check script
+
           cat > check_logs.sh << 'EOF'
           #!/bin/bash
           DEPLOY_BASE="/home/ubuntu/ezapi"
-          echo "📋 Recent Logs:"
+          echo "Recent Logs:"
           echo "Java Logs:"
           tail -10 $DEPLOY_BASE/codegen/java_app.log 2>/dev/null || echo "No Java logs found"
           echo ""
@@ -208,65 +181,54 @@ jobs:
           echo "UI Logs:"
           tail -10 $DEPLOY_BASE/ui/ui_server.log 2>/dev/null || echo "No UI logs found"
           EOF
-          
-          # Create stop script
+
           cat > stop_services.sh << 'EOF'
           #!/bin/bash
-          echo "🛑 Stopping EZAPI Services..."
+          echo "Stopping EZAPI Services..."
           pkill -f "java -jar.*java_codgen_api" || true
           pkill -f "python3 app.py" || true
           pkill -f "python3 -m http.server 8000" || true
-          echo "✅ All services stopped"
+          echo "All services stopped"
           EOF
-          
-          # Deploy scripts to EC2
+
           ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/scripts"
           scp start_services.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
           scp check_services.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
           scp check_logs.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
           scp stop_services.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
           
-          # Make scripts executable
           ssh $EC2_USER@$EC2_HOST "chmod +x $DEPLOY_BASE/scripts/*.sh"
-          
-          # Create symlinks in home directory for easy access
           ssh $EC2_USER@$EC2_HOST "ln -sf $DEPLOY_BASE/scripts/start_services.sh ~/start_ezapi.sh"
           ssh $EC2_USER@$EC2_HOST "ln -sf $DEPLOY_BASE/scripts/check_services.sh ~/check_ezapi.sh"
           ssh $EC2_USER@$EC2_HOST "ln -sf $DEPLOY_BASE/scripts/stop_services.sh ~/stop_ezapi.sh"
 
-      # 11. Start Services on EC2
+      # 11. Start services on EC2
       - name: Start Services on EC2
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
           DEPLOY_BASE: "/home/ubuntu/ezapi"
         run: |
-          echo "🎯 Starting services on EC2..."
           ssh $EC2_USER@$EC2_HOST "cd $DEPLOY_BASE/scripts && ./start_services.sh"
-          
-          # Wait a bit for services to start
           sleep 10
-          
-          # Check service status
-          echo "🔍 Checking service status..."
           ssh $EC2_USER@$EC2_HOST "cd $DEPLOY_BASE/scripts && ./check_services.sh"
 
-      # 12. Final Verification
+      # 12. Final verification
       - name: Final Verification
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          echo "🎉 Deployment Complete!"
-          echo "======================"
-          echo "✅ All artifacts deployed"
-          echo "✅ Services started"
-          echo "🌐 Access your application at:"
-          echo "   React UI:    http://$EC2_HOST:8000"
-          echo "   Java API:    http://$EC2_HOST:8080" 
-          echo "   Python API:  http://$EC2_HOST:5000"
+          echo "Deployment Complete"
+          echo "=================="
+          echo "All artifacts deployed"
+          echo "Services started"
+          echo "Access your application at:"
+          echo "React UI:    http://$EC2_HOST:8000"
+          echo "Java API:    http://$EC2_HOST:8080"
+          echo "Python API:  http://$EC2_HOST:5000"
           echo ""
-          echo "🔧 Management commands on EC2:"
-          echo "   ~/start_ezapi.sh    - Start all services"
-          echo "   ~/check_ezapi.sh    - Check service status"
-          echo "   ~/stop_ezapi.sh     - Stop all services"
+          echo "Management commands on EC2:"
+          echo "~/start_ezapi.sh    - Start all services"
+          echo "~/check_ezapi.sh    - Check service status"
+          echo "~/stop_ezapi.sh     - Stop all services"
