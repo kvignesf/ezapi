@@ -16,21 +16,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. Debug directory structure
-      - name: Debug Directory Structure
-        run: |
-          echo "=== Current Directory Structure ==="
-          find . -maxdepth 3 -type d -name "*" | sort
-          echo "=== ezapi-ui contents ==="
-          ls -la ezapi-ui/ || echo "ezapi-ui directory not found"
-
-      # 3. Build React UI
+      # 2. Build React UI (Webpack version)
       - name: Build React UI
         working-directory: ezapi-ui
         env:
           HUSKY: 0
         run: |
-          echo "Building React UI..."
+          echo "Building React UI with Webpack..."
           # Create .env file
           cat > .env << EOF
           REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL || '' }}
@@ -42,45 +34,59 @@ jobs:
           npm install
           echo "Building application..."
           npm run build
-          echo "Build completed. Build directory contents:"
+          echo "Build completed. Current directory contents:"
+          ls -la
+          echo "Looking for static files:"
+          find . -name "static" -type d 2>/dev/null || echo "No static directory found"
+          echo "Looking for index.html:"
+          find . -name "index.html" 2>/dev/null || echo "No index.html found"
+
+      # 3. Create build directory structure for deployment
+      - name: Prepare React Build for Deployment
+        working-directory: ezapi-ui
+        run: |
+          echo "Preparing build for deployment..."
+          # Create a build directory and move webpack output there
+          mkdir -p build
+          # Move all webpack output files to build directory
+          if [ -f "index.html" ]; then
+            mv index.html build/
+          fi
+          if [ -d "static" ]; then
+            mv static build/
+          fi
+          # Also look for other common webpack output patterns
+          if [ -d "dist" ]; then
+            mv dist/* build/ 2>/dev/null || true
+          fi
+          echo "Final build directory contents:"
           ls -la build/
 
-      # 4. Verify build output
-      - name: Verify Build Output
-        run: |
-          echo "=== Verifying Build Outputs ==="
-          echo "React UI build:"
-          ls -la ezapi-ui/build/ 2>/dev/null || echo "React build directory not found"
-          echo "Java JAR files:"
-          ls -la ezapi-codegen/target/*.jar 2>/dev/null || echo "No JAR files found"
-          echo "Python zip:"
-          ls -la python-app.zip 2>/dev/null || echo "Python zip not found"
-
-      # 5. Setup Java JDK 17
+      # 4. Setup Java JDK 17
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
 
-      # 6. Build Java Codegen
+      # 5. Build Java Codegen
       - name: Build Java Codegen
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 7. Setup Python
+      # 6. Setup Python
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 8. Install system dependencies
+      # 7. Install system dependencies
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y unixodbc unixodbc-dev build-essential
 
-      # 9. Build Python Miner
+      # 8. Build Python Miner
       - name: Build Python Miner
         working-directory: ezapi-miner
         run: |
@@ -89,7 +95,18 @@ jobs:
           pip install --upgrade pip setuptools wheel
           pip install -r REQUIREMENTS.txt
           rm -f ../python-app.zip
-          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*"
+          zip -r ../python-app.zip . -x "*.git*" "venc/*" "__pycache__/*"
+
+      # 9. Verify all build outputs
+      - name: Verify Build Outputs
+        run: |
+          echo "=== Final Build Outputs ==="
+          echo "React UI:"
+          ls -la ezapi-ui/build/ 2>/dev/null || echo "React build not found"
+          echo "Java JAR:"
+          ls -la ezapi-codegen/target/*.jar 2>/dev/null || echo "No JAR files"
+          echo "Python zip:"
+          ls -la python-app.zip 2>/dev/null || echo "Python zip not found"
 
       # 10. Setup SSH
       - name: Setup SSH
@@ -119,21 +136,25 @@ jobs:
           if [ -d "ezapi-ui/build" ]; then
             rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
           else
-            echo "⚠️ Warning: React UI build directory not found, skipping"
+            echo "⚠️ Warning: React UI build directory not found"
+            echo "Current directory contents:"
+            ls -la
+            echo "ezapi-ui contents:"
+            ls -la ezapi-ui/
           fi
           
           echo "Deploying Java Codegen..."
           if ls ezapi-codegen/target/*.jar 1> /dev/null 2>&1; then
             rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
           else
-            echo "⚠️ Warning: No JAR files found, skipping"
+            echo "⚠️ Warning: No JAR files found"
           fi
           
           echo "Deploying Python Miner..."
           if [ -f "python-app.zip" ]; then
             rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
           else
-            echo "⚠️ Warning: Python zip not found, skipping"
+            echo "⚠️ Warning: Python zip not found"
           fi
           
           echo "✅ Deployment completed!"
