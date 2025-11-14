@@ -20,7 +20,7 @@ jobs:
       - name: Build React UI
         working-directory: ezapi-ui
         env:
-          HUSKY_SKIP_INSTALL: 1   # Prevent Husky install to avoid errors in CI
+          HUSKY: 0  # Completely disable Husky in CI
           REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
           REACT_APP_AES_ENCRYPTION_KEY: ${{ secrets.REACT_APP_AES_ENCRYPTION_KEY }}
           REACT_APP_LINKEDIN_CLIENT_ID: ${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID }}
@@ -72,4 +72,3 @@ jobs:
           rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
           rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
           rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
-
