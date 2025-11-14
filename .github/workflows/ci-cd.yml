@@ -8,7 +8,7 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       # 1. Checkout repository
@@ -33,12 +33,6 @@ jobs:
           EOF
           npm install
           npm run build
-          mkdir -p build
-          [ -f "index.html" ] && mv index.html build/ || true
-          [ -d "static" ] && mv static build/ || true
-          [ -f "manifest.json" ] && mv manifest.json build/ || true
-          [ -f "conektto.ico" ] && mv conektto.ico build/ || true
-          [ -f "msclarity.js" ] && mv msclarity.js build/ || true
 
       # 3. Build Java Codegen
       - name: Build Java Codegen
@@ -51,20 +45,26 @@ jobs:
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 4. Build Python Miner
+      # 4. Build Python Miner (skip problematic dependencies)
       - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
       
-      - name: Install Python Dependencies
+      - name: Install Core Python Dependencies
         working-directory: ezapi-miner
         run: |
           python -m venv venv
           source venv/bin/activate
-          pip install -r REQUIREMENTS.txt
+          
+          # Install only core dependencies, skip problematic ones
+          pip install --upgrade pip
+          pip install flask flask-cors requests numpy pandas sqlalchemy pymongo psycopg2-binary pyjwt python-decouple
+          
+          # Create cleaned requirements file for deployment
+          pip freeze > requirements_clean.txt
           rm -f ../python-app.zip
-          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*"
+          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "REQUIREMENTS.txt"
 
       # 5. Setup SSH and Deploy
       - name: Setup SSH
@@ -81,7 +81,7 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           DEPLOY_BASE: "/home/ubuntu/ezapi"
         run: |
-          ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/{ui,codegen,miner,scripts}"
+          ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/{ui,codegen,miner,scripts,logs}"
           
           rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
           rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
@@ -108,7 +108,6 @@ jobs:
                 },
                 error_file: '/home/ubuntu/ezapi/logs/java-err.log',
                 out_file: '/home/ubuntu/ezapi/logs/java-out.log',
-                log_file: '/home/ubuntu/ezapi/logs/java-combined.log',
                 time: true
               },
               {
@@ -122,7 +121,6 @@ jobs:
                 },
                 error_file: '/home/ubuntu/ezapi/logs/python-err.log',
                 out_file: '/home/ubuntu/ezapi/logs/python-out.log',
-                log_file: '/home/ubuntu/ezapi/logs/python-combined.log',
                 time: true
               },
               {
@@ -136,48 +134,44 @@ jobs:
                 },
                 error_file: '/home/ubuntu/ezapi/logs/ui-err.log',
                 out_file: '/home/ubuntu/ezapi/logs/ui-out.log',
-                log_file: '/home/ubuntu/ezapi/logs/ui-combined.log',
                 time: true
               }
             ]
           }
           EOF
 
-          # Create startup script
+          # Create deployment script
           cat > deploy.sh << 'EOF'
           #!/bin/bash
           DEPLOY_BASE="/home/ubuntu/ezapi"
           
-          # Create log directory
+          # Create Java log directory
           sudo mkdir -p /var/app/ezapi_java_code_gen/logs/
           sudo chown ubuntu:ubuntu /var/app/ezapi_java_code_gen/logs/
-          mkdir -p $DEPLOY_BASE/logs
           
-          # Extract Python app
+          # Extract and setup Python app
           cd $DEPLOY_BASE/miner
           unzip -o python-app.zip > /dev/null 2>&1
           
-          # Install PM2 globally
+          # Install PM2 if not present
           if ! command -v pm2 &> /dev/null; then
-            npm install -g pm2
-            pm2 startup
+            curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+            sudo npm install -g pm2
           fi
           
           # Install Python dependencies
           if [ ! -d "venv" ]; then
             python3 -m venv venv
             source venv/bin/activate
-            pip install -r REQUIREMENTS.txt
+            pip install -r requirements_clean.txt
           fi
           
-          # Deploy ecosystem file
-          cp $DEPLOY_BASE/scripts/ecosystem.config.js .
-          
-          # Stop existing services and start with PM2
+          # Deploy with PM2
           pm2 delete all || true
-          pm2 start ecosystem.config.js
+          pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
           pm2 save
-          pm2 status
+          pm2 startup
           EOF
 
           # Deploy scripts
@@ -196,8 +190,8 @@ jobs:
           echo "Checking service status..."
           ssh $EC2_USER@$EC2_HOST "pm2 status"
           
-          echo "Deployment completed successfully"
+          echo "Deployment completed"
           echo "Services running on:"
           echo "React UI:    http://$EC2_HOST:8000"
-          echo "Java API:    http://$EC2_HOST:8080"
+          echo "Java API:    http://$EC2_HOST:8080" 
           echo "Python API:  http://$EC2_HOST:5000"
