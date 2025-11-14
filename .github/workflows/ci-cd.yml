@@ -78,13 +78,31 @@ jobs:
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*"
 
-      # 8. Deploy to EC2
+      # 8. Setup SSH key and known hosts - USING YOUR EXISTING SECRET NAMES
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SERLEEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_JOINT }} >> ~/.ssh/known_hosts
+
+      # 9. Deploy to EC2 - USING YOUR EXISTING SECRET NAMES
       - name: Deploy to EC2
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          DEPLOY_BASE: ${{ secrets.DEPLOY_BASE }}
+          EC2_HOST: ${{ secrets.EC2_JOINT }}  # Using EC2_JOINT as host
+          DEPLOY_BASE: ${{ secrets.DEPLOY_BASE || '/home/ec2-user/ezapi' }}  # Fallback if not set
         run: |
-          rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
-          rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
-          rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
+          # Test SSH connection first
+          echo "Testing SSH connection to $EC2_USER@$EC2_HOST"
+          ssh -o BatchMode=yes -v $EC2_USER@$EC2_HOST "echo 'SSH connection successful'" || echo "SSH connection failed"
+          
+          # Create directories on EC2 if they don't exist
+          ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/ui $DEPLOY_BASE/codegen $DEPLOY_BASE/miner"
+          
+          # Deploy files
+          rsync -avz -e "ssh -o StrictHostKeyChecking=no" ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
+          rsync -avz -e "ssh -o StrictHostKeyChecking=no" ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
+          rsync -avz -e "ssh -o StrictHostKeyChecking=no" python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
+          
+          echo "Deployment completed successfully"
