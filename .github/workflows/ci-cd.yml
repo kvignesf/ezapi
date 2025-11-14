@@ -10,11 +10,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repo
+      # Checkout the repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Build REACT UI
+      # Build React UI
       - name: Build React UI
         working-directory: ezapi-ui
         run: |
@@ -25,23 +25,25 @@ jobs:
           npm install
           npm run build
 
-      # 3. Build JAVA Codegen
+      # Set up JDK 17 for Java build
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
 
+      # Build Java Codegen
       - name: Build Java Codegen
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 4. Build Python Miner
+      # Set up Python for Miner
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
+      # Build Python Miner
       - name: Build Python Miner
         working-directory: ezapi-miner
         run: |
@@ -52,7 +54,7 @@ jobs:
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*"
 
-      # 5. Deploy to EC2 
+      # Deploy to EC2
       - name: Deploy to EC2
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
