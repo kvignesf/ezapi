@@ -16,7 +16,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. Build React UI
+      # 2. Debug directory structure
+      - name: Debug Directory Structure
+        run: |
+          echo "=== Current Directory Structure ==="
+          find . -maxdepth 3 -type d -name "*" | sort
+          echo "=== ezapi-ui contents ==="
+          ls -la ezapi-ui/ || echo "ezapi-ui directory not found"
+
+      # 3. Build React UI
       - name: Build React UI
         working-directory: ezapi-ui
         env:
@@ -30,34 +38,49 @@ jobs:
           REACT_APP_LINKEDIN_CLIENT_ID=${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID || '' }}
           REACT_APP_STRIPE_KEY=${{ secrets.REACT_APP_STRIPE_KEY || '' }}
           EOF
+          echo "Installing dependencies..."
           npm install
+          echo "Building application..."
           npm run build
+          echo "Build completed. Build directory contents:"
+          ls -la build/
 
-      # 3. Setup Java JDK 17
+      # 4. Verify build output
+      - name: Verify Build Output
+        run: |
+          echo "=== Verifying Build Outputs ==="
+          echo "React UI build:"
+          ls -la ezapi-ui/build/ 2>/dev/null || echo "React build directory not found"
+          echo "Java JAR files:"
+          ls -la ezapi-codegen/target/*.jar 2>/dev/null || echo "No JAR files found"
+          echo "Python zip:"
+          ls -la python-app.zip 2>/dev/null || echo "Python zip not found"
+
+      # 5. Setup Java JDK 17
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
 
-      # 4. Build Java Codegen
+      # 6. Build Java Codegen
       - name: Build Java Codegen
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 5. Setup Python
+      # 7. Setup Python
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 6. Install system dependencies
+      # 8. Install system dependencies
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y unixodbc unixodbc-dev build-essential
 
-      # 7. Build Python Miner
+      # 9. Build Python Miner
       - name: Build Python Miner
         working-directory: ezapi-miner
         run: |
@@ -68,7 +91,7 @@ jobs:
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*"
 
-      # 8. Setup SSH
+      # 10. Setup SSH
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -76,7 +99,7 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      # 9. Deploy to EC2
+      # 11. Deploy to EC2
       - name: Deploy to EC2
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
@@ -91,9 +114,26 @@ jobs:
           # Create directories
           ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/ui $DEPLOY_BASE/codegen $DEPLOY_BASE/miner"
           
-          # Deploy files
-          rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
-          rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
-          rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
+          # Deploy files with checks
+          echo "Deploying React UI..."
+          if [ -d "ezapi-ui/build" ]; then
+            rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
+          else
+            echo "⚠️ Warning: React UI build directory not found, skipping"
+          fi
           
-          echo "Deployment completed!"
+          echo "Deploying Java Codegen..."
+          if ls ezapi-codegen/target/*.jar 1> /dev/null 2>&1; then
+            rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
+          else
+            echo "⚠️ Warning: No JAR files found, skipping"
+          fi
+          
+          echo "Deploying Python Miner..."
+          if [ -f "python-app.zip" ]; then
+            rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
+          else
+            echo "⚠️ Warning: Python zip not found, skipping"
+          fi
+          
+          echo "✅ Deployment completed!"
