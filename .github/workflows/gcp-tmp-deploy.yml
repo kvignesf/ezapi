@@ -15,9 +15,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Build React UI - FIXED
+      # 2. Build React UI - WITH PROPER VERIFICATION
       - name: Build React UI
-        working-directory: ./ezapi-ui
+        working-directory: ezapi-ui
         env:
           HUSKY: 0
           REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
@@ -25,8 +25,7 @@ jobs:
           REACT_APP_LINKEDIN_CLIENT_ID: ${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID }}
           REACT_APP_STRIPE_KEY: ${{ secrets.REACT_APP_STRIPE_KEY }}
         run: |
-          echo "Building React UI..."
-          # Create .env file
+          echo "Creating .env file..."
           cat > .env << EOF
 REACT_APP_API_URL=$REACT_APP_API_URL
 REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY
@@ -35,20 +34,35 @@ REACT_APP_STRIPE_KEY=$REACT_APP_STRIPE_KEY
 EOF
           echo "Installing dependencies..."
           npm install
-          echo "Running build..."
+          echo "Building React app..."
           npm run build
-          echo "React build completed. Checking build output:"
-          # Check what was actually built - webpack might use different output dir
-          find . -name "build" -type d 2>/dev/null || echo "No build directory found"
-          find . -name "dist" -type d 2>/dev/null || echo "No dist directory found"
-          ls -la  # Show current directory contents
-          # If webpack built to different directory, copy to expected location
-          if [ -d "dist" ] && [ ! -d "build" ]; then
-            echo "Copying dist to build directory..."
-            cp -r dist build/
+          echo "Build completed. Checking build output..."
+          ls -la
+          echo "Build directory contents:"
+          ls -la build/ || echo "No build directory found"
+
+      # 3. Verify React Build Output
+      - name: Verify React Build
+        run: |
+          echo "Verifying React build output..."
+          if [ -d "ezapi-ui/build" ]; then
+            echo "✅ React build directory exists"
+            echo "Build contents:"
+            ls -la ezapi-ui/build/
+            echo "Total files in build:"
+            find ezapi-ui/build -type f | wc -l
+          else
+            echo "❌ React build directory NOT found"
+            echo "Current directory structure:"
+            ls -la
+            echo "ezapi-ui contents:"
+            ls -la ezapi-ui/
+            echo "Searching for build artifacts..."
+            find . -name "build" -type d 2>/dev/null | head -10
+            exit 1
           fi
 
-      # 3. Build Java Codegen
+      # 4. Build Java Codegen
       - name: Build Java Codegen
         uses: actions/setup-java@v3
         with:
@@ -63,7 +77,7 @@ EOF
           echo "Java build completed. JAR files:"
           ls -la target/*.jar
 
-      # 4. Build Python Miner
+      # 5. Build Python Miner
       - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
@@ -83,7 +97,7 @@ EOF
           echo "Python package created:"
           ls -la ../python-app.zip
 
-      # 5. Build Node.js Backend
+      # 6. Build Node.js Backend
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
@@ -106,7 +120,7 @@ EOF
           echo "Node.js package created:"
           ls -la ../node-backend.zip
 
-      # 6. Setup SSH for GCP
+      # 7. Setup SSH for GCP
       - name: Setup SSH for GCP
         run: |
           mkdir -p ~/.ssh
@@ -114,38 +128,46 @@ EOF
           chmod 600 ~/.ssh/gcp_key
           ssh-keyscan -H "${{ secrets.GCP_VM_HOST }}" >> ~/.ssh/known_hosts
 
-      # 7. Verify Build Outputs - IMPROVED
-      - name: Verify Build Outputs
+      # 8. Verify All Build Outputs
+      - name: Verify All Build Outputs
         run: |
-          echo "Verifying build outputs..."
-          echo "Current directory structure:"
-          ls -la
-          
-          echo "React UI build check:"
+          echo "=== VERIFYING ALL BUILD OUTPUTS ==="
+          echo "React UI build:"
           if [ -d "ezapi-ui/build" ]; then
-            echo "✓ React build directory found"
-            ls -la ezapi-ui/build/
-          elif [ -d "ezapi-ui/dist" ]; then
-            echo "✓ React dist directory found, creating build symlink"
-            ln -s dist ezapi-ui/build
-            ls -la ezapi-ui/build/
+            echo "✅ Found - $(find ezapi-ui/build -type f | wc -l) files"
+            ls -la ezapi-ui/build/ | head -5
           else
-            echo "✗ No React build output found"
-            echo "Searching for build artifacts..."
-            find ezapi-ui -name "*bundle*" -type d 2>/dev/null || echo "No bundle directories found"
-            find ezapi-ui -name "static" -type d 2>/dev/null || echo "No static directories found"
+            echo "❌ Missing React build"
+            exit 1
           fi
           
           echo "Java JAR:"
-          ls -la ezapi-codegen/target/*.jar 2>/dev/null || echo "Java JAR not found"
+          if ls ezapi-codegen/target/*.jar 1>/dev/null 2>&1; then
+            echo "✅ Found"
+            ls -la ezapi-codegen/target/*.jar
+          else
+            echo "❌ Missing Java JAR"
+            exit 1
+          fi
           
           echo "Python package:"
-          ls -la python-app.zip 2>/dev/null || echo "Python package not found"
+          if [ -f "python-app.zip" ]; then
+            echo "✅ Found - $(ls -lh python-app.zip | awk '{print $5}')"
+          else
+            echo "❌ Missing Python package"
+            exit 1
+          fi
           
           echo "Node.js package:"
-          ls -la node-backend.zip 2>/dev/null || echo "Node.js package not found"
+          if [ -f "node-backend.zip" ]; then
+            echo "✅ Found - $(ls -lh node-backend.zip | awk '{print $5}')"
+          else
+            echo "❌ Missing Node.js package"
+            exit 1
+          fi
+          echo "=== ALL BUILD OUTPUTS VERIFIED ==="
 
-      # 8. Deploy All Services to /tmp - WITH FALLBACK
+      # 9. Deploy All Services to /tmp - WITH ERROR HANDLING
       - name: Deploy to GCP VM /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -153,46 +175,55 @@ EOF
         run: |
           echo "Starting deployment to /tmp..."
           
+          # Create directory structure
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "mkdir -p /tmp/ezapi/{ui,codegen,miner,backend,scripts,logs}"
           
           echo "Deploying React UI..."
-          # Multiple fallback options for React build
           if [ -d "ezapi-ui/build" ]; then
+            echo "Syncing React build files..."
             rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/build/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
-          elif [ -d "ezapi-ui/dist" ]; then
-            rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/dist/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
+            echo "React UI deployed successfully"
           else
-            echo "No React build output found. Creating placeholder..."
-            ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "echo 'No React build available' > /tmp/ezapi/ui/README.txt"
+            echo "ERROR: React build directory not found. Cannot deploy React UI."
+            exit 1
           fi
           
           echo "Deploying Java Codegen..."
-          if ls ezapi-codegen/target/*.jar 1> /dev/null 2>&1; then
+          if ls ezapi-codegen/target/*.jar 1>/dev/null 2>&1; then
             rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
+            echo "Java Codegen deployed successfully"
           else
-            echo "Java JAR not found, skipping..."
+            echo "ERROR: Java JAR not found"
+            exit 1
           fi
           
           echo "Deploying Python Miner..."
           if [ -f "python-app.zip" ]; then
             rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
+            echo "Python Miner deployed successfully"
           else
-            echo "Python package not found, skipping..."
+            echo "ERROR: Python package not found"
+            exit 1
           fi
           
           echo "Deploying Node.js Backend..."
           if [ -f "node-backend.zip" ]; then
             rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
+            echo "Node.js Backend deployed successfully"
           else
-            echo "Node.js package not found, skipping..."
+            echo "ERROR: Node.js package not found"
+            exit 1
           fi
+          
+          echo "✅ All services deployed to /tmp successfully"
 
-      # 9. Setup and Start Services in /tmp
+      # 10. Setup and Start Services in /tmp
       - name: Setup PM2 and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
+          echo "Creating PM2 ecosystem configuration..."
           cat > ecosystem.config.js << 'EOF'
           module.exports = {
             apps: [
@@ -254,26 +285,30 @@ EOF
           }
           EOF
           
+          echo "Creating deployment script..."
           cat > deploy.sh << 'EOF'
           #!/bin/bash
+          set -e
           echo "Deploying EZAPI to /tmp folder..."
           
+          # Stop existing services
           pm2 delete tmp-java-codegen tmp-python-miner tmp-node-backend tmp-react-ui 2>/dev/null || true
           
           echo "Setting up Python miner..."
           cd /tmp/ezapi/miner
-          unzip -o python-app.zip > /dev/null 2>&1 || echo "No Python package to extract"
+          unzip -o python-app.zip || echo "Python extraction completed"
           
           echo "Setting up Node.js backend..."
           cd /tmp/ezapi/backend
-          unzip -o node-backend.zip > /dev/null 2>&1 || echo "No Node.js package to extract"
+          unzip -o node-backend.zip || echo "Node.js extraction completed"
           if [ -f "package.json" ]; then
             npm install --production --no-audit --no-fund
-            cp .env.prod .env 2>/dev/null || echo "No .env.prod found"
-          else
-            echo "Node.js backend files not found"
+            if [ -f ".env.prod" ]; then
+              cp .env.prod .env
+            fi
           fi
           
+          # Install PM2 if not present
           if ! command -v pm2 &> /dev/null; then
             echo "Installing PM2..."
             curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
@@ -284,18 +319,15 @@ EOF
           echo "Installing Python dependencies..."
           cd /tmp/ezapi/miner
           if [ -f "requirements_clean.txt" ]; then
-            if [ ! -d "venv" ]; then
-              python3 -m venv venv
-            fi
+            python3 -m venv venv --clear
             source venv/bin/activate
             pip install -r requirements_clean.txt
-          else
-            echo "Python requirements not found"
           fi
           
           echo "Starting services with PM2..."
           pm2 start /tmp/ezapi/scripts/ecosystem.config.js
           pm2 save
+          pm2 startup 2>/dev/null || true
           
           echo "Services deployed successfully to /tmp!"
           echo ""
@@ -306,15 +338,17 @@ EOF
           echo "Python API:    http://$(curl -s ifconfig.me):9003"
           echo ""
           echo "Check status: pm2 status"
-          echo "Check logs:   pm2 logs"
           EOF
           
+          # Transfer configuration files
           scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           
+          # Execute deployment
+          echo "Running deployment script on GCP VM..."
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
 
-      # 10. Final Verification
+      # 11. Final Verification
       - name: Final Verification
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
