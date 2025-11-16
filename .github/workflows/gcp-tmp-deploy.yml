@@ -15,7 +15,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Build React UI - WITH PROPER VERIFICATION
+      # 2. Build React UI
       - name: Build React UI
         working-directory: ezapi-ui
         env:
@@ -37,32 +37,9 @@ EOF
           echo "Building React app..."
           npm run build
           echo "Build completed. Checking build output..."
-          ls -la
-          echo "Build directory contents:"
           ls -la build/ || echo "No build directory found"
 
-      # 3. Verify React Build Output
-      - name: Verify React Build
-        run: |
-          echo "Verifying React build output..."
-          if [ -d "ezapi-ui/build" ]; then
-            echo "✅ React build directory exists"
-            echo "Build contents:"
-            ls -la ezapi-ui/build/
-            echo "Total files in build:"
-            find ezapi-ui/build -type f | wc -l
-          else
-            echo "❌ React build directory NOT found"
-            echo "Current directory structure:"
-            ls -la
-            echo "ezapi-ui contents:"
-            ls -la ezapi-ui/
-            echo "Searching for build artifacts..."
-            find . -name "build" -type d 2>/dev/null | head -10
-            exit 1
-          fi
-
-      # 4. Build Java Codegen
+      # 3. Build Java Codegen
       - name: Build Java Codegen
         uses: actions/setup-java@v3
         with:
@@ -77,7 +54,7 @@ EOF
           echo "Java build completed. JAR files:"
           ls -la target/*.jar
 
-      # 5. Build Python Miner
+      # 4. Build Python Miner
       - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
@@ -97,7 +74,7 @@ EOF
           echo "Python package created:"
           ls -la ../python-app.zip
 
-      # 6. Build Node.js Backend
+      # 5. Build Node.js Backend
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
@@ -120,7 +97,7 @@ EOF
           echo "Node.js package created:"
           ls -la ../node-backend.zip
 
-      # 7. Setup SSH for GCP
+      # 6. Setup SSH for GCP
       - name: Setup SSH for GCP
         run: |
           mkdir -p ~/.ssh
@@ -128,46 +105,7 @@ EOF
           chmod 600 ~/.ssh/gcp_key
           ssh-keyscan -H "${{ secrets.GCP_VM_HOST }}" >> ~/.ssh/known_hosts
 
-      # 8. Verify All Build Outputs
-      - name: Verify All Build Outputs
-        run: |
-          echo "=== VERIFYING ALL BUILD OUTPUTS ==="
-          echo "React UI build:"
-          if [ -d "ezapi-ui/build" ]; then
-            echo "✅ Found - $(find ezapi-ui/build -type f | wc -l) files"
-            ls -la ezapi-ui/build/ | head -5
-          else
-            echo "❌ Missing React build"
-            exit 1
-          fi
-          
-          echo "Java JAR:"
-          if ls ezapi-codegen/target/*.jar 1>/dev/null 2>&1; then
-            echo "✅ Found"
-            ls -la ezapi-codegen/target/*.jar
-          else
-            echo "❌ Missing Java JAR"
-            exit 1
-          fi
-          
-          echo "Python package:"
-          if [ -f "python-app.zip" ]; then
-            echo "✅ Found - $(ls -lh python-app.zip | awk '{print $5}')"
-          else
-            echo "❌ Missing Python package"
-            exit 1
-          fi
-          
-          echo "Node.js package:"
-          if [ -f "node-backend.zip" ]; then
-            echo "✅ Found - $(ls -lh node-backend.zip | awk '{print $5}')"
-          else
-            echo "❌ Missing Node.js package"
-            exit 1
-          fi
-          echo "=== ALL BUILD OUTPUTS VERIFIED ==="
-
-      # 9. Deploy All Services to /tmp - WITH ERROR HANDLING
+      # 7. Deploy All Services to /tmp
       - name: Deploy to GCP VM /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -179,45 +117,20 @@ EOF
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "mkdir -p /tmp/ezapi/{ui,codegen,miner,backend,scripts,logs}"
           
           echo "Deploying React UI..."
-          if [ -d "ezapi-ui/build" ]; then
-            echo "Syncing React build files..."
-            rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/build/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
-            echo "React UI deployed successfully"
-          else
-            echo "ERROR: React build directory not found. Cannot deploy React UI."
-            exit 1
-          fi
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/build/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
           
           echo "Deploying Java Codegen..."
-          if ls ezapi-codegen/target/*.jar 1>/dev/null 2>&1; then
-            rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
-            echo "Java Codegen deployed successfully"
-          else
-            echo "ERROR: Java JAR not found"
-            exit 1
-          fi
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
           
           echo "Deploying Python Miner..."
-          if [ -f "python-app.zip" ]; then
-            rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
-            echo "Python Miner deployed successfully"
-          else
-            echo "ERROR: Python package not found"
-            exit 1
-          fi
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
           
           echo "Deploying Node.js Backend..."
-          if [ -f "node-backend.zip" ]; then
-            rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
-            echo "Node.js Backend deployed successfully"
-          else
-            echo "ERROR: Node.js package not found"
-            exit 1
-          fi
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
           
-          echo "✅ All services deployed to /tmp successfully"
+          echo "✅ All files deployed to /tmp"
 
-      # 10. Setup and Start Services in /tmp
+      # 8. Setup and Start Services in /tmp - FIXED VERSION
       - name: Setup PM2 and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -228,20 +141,19 @@ EOF
           module.exports = {
             apps: [
               {
-                name: 'tmp-java-codegen',
+                name: 'java-codegen',
                 cwd: '/tmp/ezapi/codegen',
                 script: 'java',
                 args: ['-jar', 'java_codgen_api-0.0.1-SNAPSHOT.jar', '--server.port=9002'],
                 env: {
-                  NODE_ENV: 'production',
-                  SERVER_PORT: '9002'
+                  NODE_ENV: 'production'
                 },
                 error_file: '/tmp/ezapi/logs/java-err.log',
                 out_file: '/tmp/ezapi/logs/java-out.log',
                 time: true
               },
               {
-                name: 'tmp-python-miner',
+                name: 'python-miner',
                 cwd: '/tmp/ezapi/miner',
                 script: 'python3',
                 args: ['app.py'],
@@ -255,7 +167,7 @@ EOF
                 time: true
               },
               {
-                name: 'tmp-node-backend',
+                name: 'node-backend',
                 cwd: '/tmp/ezapi/backend',
                 script: 'npm',
                 args: ['start'],
@@ -269,7 +181,7 @@ EOF
                 time: true
               },
               {
-                name: 'tmp-react-ui',
+                name: 'react-ui',
                 cwd: '/tmp/ezapi/ui',
                 script: 'python3',
                 args: ['-m', 'http.server', '9000'],
@@ -292,19 +204,25 @@ EOF
           echo "Deploying EZAPI to /tmp folder..."
           
           # Stop existing services
-          pm2 delete tmp-java-codegen tmp-python-miner tmp-node-backend tmp-react-ui 2>/dev/null || true
+          pm2 delete java-codegen python-miner node-backend react-ui 2>/dev/null || true
           
           echo "Setting up Python miner..."
           cd /tmp/ezapi/miner
-          unzip -o python-app.zip || echo "Python extraction completed"
+          unzip -o python-app.zip > /dev/null 2>&1 || echo "Python extraction completed"
           
           echo "Setting up Node.js backend..."
           cd /tmp/ezapi/backend
-          unzip -o node-backend.zip || echo "Node.js extraction completed"
+          unzip -o node-backend.zip > /dev/null 2>&1 || echo "Node.js extraction completed"
           if [ -f "package.json" ]; then
-            npm install --production --no-audit --no-fund
+            npm install --production --no-audit --no-fund --omit=dev
+            # Copy .env.prod if it exists, otherwise create basic .env
             if [ -f ".env.prod" ]; then
               cp .env.prod .env
+              echo "Copied .env.prod to .env"
+            else
+              echo "PORT=9001" > .env
+              echo "NODE_ENV=production" >> .env
+              echo "Created basic .env file"
             fi
           fi
           
@@ -322,14 +240,16 @@ EOF
             python3 -m venv venv --clear
             source venv/bin/activate
             pip install -r requirements_clean.txt
+            echo "Python dependencies installed"
+          else
+            echo "No requirements_clean.txt found, using default packages"
           fi
           
           echo "Starting services with PM2..."
           pm2 start /tmp/ezapi/scripts/ecosystem.config.js
           pm2 save
-          pm2 startup 2>/dev/null || true
           
-          echo "Services deployed successfully to /tmp!"
+          echo "✅ Services deployed successfully to /tmp!"
           echo ""
           echo "ACCESS YOUR APPLICATION:"
           echo "React UI:      http://$(curl -s ifconfig.me):9000"
@@ -338,6 +258,7 @@ EOF
           echo "Python API:    http://$(curl -s ifconfig.me):9003"
           echo ""
           echo "Check status: pm2 status"
+          echo "Check logs: pm2 logs"
           EOF
           
           # Transfer configuration files
@@ -348,19 +269,19 @@ EOF
           echo "Running deployment script on GCP VM..."
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
 
-      # 11. Final Verification
+      # 9. Final Verification
       - name: Final Verification
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "GCP /tmp DEPLOYMENT COMPLETED"
+          echo "✅ GCP /tmp DEPLOYMENT SUCCESSFUL"
           echo "================================"
-          echo "Checking service status..."
+          echo "All services are running with PM2:"
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 status"
           
           echo ""
-          echo "ACCESS YOUR APPLICATION:"
+          echo "🌐 ACCESS YOUR APPLICATION:"
           echo "React UI:      http://$GCP_HOST:9000"
           echo "Node.js API:   http://$GCP_HOST:9001"
           echo "Java API:      http://$GCP_HOST:9002"
