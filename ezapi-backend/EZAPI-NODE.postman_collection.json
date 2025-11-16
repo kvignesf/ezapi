@@ -1,0 +1,396 @@
+{
+	"info": {
+		"_postman_id": "f8490dd8-cffd-4da4-9f2d-f388b7318d90",
+		"name": "EZAPI-NODE",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "localhost:7744/testgrid?api_ops_id=49af482258fb42d496df7e6506725589",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:7744/testgrid?api_ops_id=49af482258fb42d496df7e6506725589",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"testgrid"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "49af482258fb42d496df7e6506725589"
+						}
+					]
+				},
+				"description": "Returns basic information about all the test cases including testcase id and other basic details"
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/testdata/97?api_ops_id=49af482258fb42d496df7e6506725589",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:7744/testdata/97?api_ops_id=49af482258fb42d496df7e6506725589",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"testdata",
+						"97"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "49af482258fb42d496df7e6506725589"
+						}
+					]
+				},
+				"description": "Get a specific test id full details. Testcase Id needs to be passed in the path paramater"
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/testdata/97?api_ops_id=794d7c3b06504acd95006fe0e17b6864",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "localhost:7744/testdata/97?api_ops_id=794d7c3b06504acd95006fe0e17b6864",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"testdata",
+						"97"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "794d7c3b06504acd95006fe0e17b6864"
+						}
+					]
+				},
+				"description": "Delete a specific testcase Id. Once a testcase is deleted, it won't fetch from testgrid API."
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/test?api_ops_id=794d7c3b06504acd95006fe0e17b6864",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:7744/test?api_ops_id=794d7c3b06504acd95006fe0e17b6864",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"test"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "794d7c3b06504acd95006fe0e17b6864"
+						}
+					]
+				},
+				"description": "Add a nes testcase. Testcase Id will be auto generated based on serial number logic."
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/testdata/97?api_ops_id=794d7c3b06504acd95006fe0e17b6864",
+			"request": {
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"description\": \"new description\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:7744/testdata/97?api_ops_id=794d7c3b06504acd95006fe0e17b6864",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"testdata",
+						"97"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "794d7c3b06504acd95006fe0e17b6864"
+						}
+					]
+				},
+				"description": "Update a specific testcase. The full testcase schema needs to be passed for updation. "
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/virtual_test?api_ops_id=49af482258fb42d496df7e6506725589&endpoint=/pet&statusCode=400",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:7744/virtual_test?api_ops_id=49af482258fb42d496df7e6506725589&endpoint=/pet&statusCode=400",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"virtual_test"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "49af482258fb42d496df7e6506725589"
+						},
+						{
+							"key": "endpoint",
+							"value": "/pet"
+						},
+						{
+							"key": "statusCode",
+							"value": "400"
+						}
+					]
+				},
+				"description": "This API return Virtual Data for testcases. It can be filtered on endpoint and status code."
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/upload_file",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"description": "A JSON Swagger File",
+							"type": "file",
+							"src": "/Users/shbham/Desktop/workspace/turing/ezapi/testdata/bill-balance-ms-v1.json"
+						}
+					]
+				},
+				"url": {
+					"raw": "localhost:7744/upload_file",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"upload_file"
+					]
+				},
+				"description": "The starting API. This API accepts a JSON file as input, Runs APIOPS model to that and store data into a specific mongo DB. This data further can be used for extraction APIS like - sankey, testdata etc."
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/sankey?api_ops_id=833584c3-6964-4139-ac76-f494aacf6b03",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:7744/sankey?api_ops_id=833584c3-6964-4139-ac76-f494aacf6b03",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"sankey"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "833584c3-6964-4139-ac76-f494aacf6b03"
+						}
+					]
+				},
+				"description": "Extract Sankey (Visualization Data) for a specific Swagger File (api_ops_id)"
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/upload_history",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:7744/upload_history",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"upload_history"
+					]
+				},
+				"description": "This API return all the uploaded swagger files with basic details like API title, API Resource information, api_ops_id and status of apiops model"
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/download?api_ops_id=22b6426f-60fb-4627-9ffa-e5bb3adea80b",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:7744/download?api_ops_id=22b6426f-60fb-4627-9ffa-e5bb3adea80b",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"download"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "22b6426f-60fb-4627-9ffa-e5bb3adea80b"
+						}
+					]
+				},
+				"description": "This API generates a downloadable link for the APIOPS Model image. It returns a cloud storage downloadable link with an expiry of 15 mins."
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/test_result?api_ops_id=22b6426f-60fb-4627-9ffa-e5bb3adea80b",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:7744/test_result?api_ops_id=22b6426f-60fb-4627-9ffa-e5bb3adea80b",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"test_result"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "22b6426f-60fb-4627-9ffa-e5bb3adea80b"
+						}
+					]
+				},
+				"description": "This API returns the full report of test execution result. There are a history of three runs, run1, run2 and run3. run1 represents the latest run."
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/test_result?api_ops_id=59fd2711-43f1-4efd-9e29-ab2adb1d4e9f",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "[\n    {\n        \"testcaseId\": 1,\n        \"endpoint\": \"/pet\",\n        \"status\": \"200\",\n        \"method\": \"GET\",\n        \"result\": \"passed\",\n        \"failureReason\": null,\n        \"operationId\": \"ops1\"\n    },\n    {\n        \"testcaseId\": 2,\n        \"endpoint\": \"/pet\",\n        \"status\": \"200\",\n        \"method\": \"POST\",\n        \"result\": \"failed\",\n        \"failureReason\": null,\n        \"operationId\": \"ops2\"\n    },\n    {\n        \"testcaseId\": 3,\n        \"endpoint\": \"/user\",\n        \"status\": \"200\",\n        \"method\": \"POST\",\n        \"result\": \"not executed\",\n        \"failureReason\": null,\n        \"operationId\": \"ops3\"\n    }\n]",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:7744/test_result?api_ops_id=59fd2711-43f1-4efd-9e29-ab2adb1d4e9f",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"test_result"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "59fd2711-43f1-4efd-9e29-ab2adb1d4e9f"
+						}
+					]
+				},
+				"description": "This API stores the information of test execution result"
+			},
+			"response": []
+		},
+		{
+			"name": "localhost:7744/test_report?api_ops_id=59fd2711-43f1-4efd-9e29-ab2adb1d4e9f&endpoint=[\"/pet\"]&http_method=[\"POST\"]&status_code=[200]",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "localhost:7744/test_report?api_ops_id=59fd2711-43f1-4efd-9e29-ab2adb1d4e9f&endpoint=[\"/pet\"]&http_method=[\"POST\"]&status_code=[200]",
+					"host": [
+						"localhost"
+					],
+					"port": "7744",
+					"path": [
+						"test_report"
+					],
+					"query": [
+						{
+							"key": "api_ops_id",
+							"value": "59fd2711-43f1-4efd-9e29-ab2adb1d4e9f"
+						},
+						{
+							"key": "endpoint",
+							"value": "[\"/pet\"]"
+						},
+						{
+							"key": "http_method",
+							"value": "[\"POST\"]"
+						},
+						{
+							"key": "status_code",
+							"value": "[200]"
+						}
+					]
+				},
+				"description": "This API generated the test report and it returns the count of passed, failed and not executed test result. IT can be filtered on the basis of endpoint, http method and status code."
+			},
+			"response": []
+		}
+	],
+	"protocolProfileBehavior": {}
+}

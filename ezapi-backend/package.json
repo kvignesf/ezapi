@@ -1,0 +1,87 @@
+{
+  "name": "apiops_nodejs",
+  "version": "1.0.0",
+  "description": "APIOPS model for testdata extraction and updation",
+  "main": "index.js",
+  "author": "shubham",
+  "license": "MIT",
+  "dependencies": {
+    "@dqbd/tiktoken": "^1.0.6",
+    "@getvim/execute": "^1.0.0",
+    "@google-cloud/storage": "^5.18.2",
+    "@workos-inc/node": "^2.6.0",
+    "adm-zip": "^0.4.16",
+    "archiver": "^5.3.0",
+    "axios": "^0.21.1",
+    "body-parser": "^1.19.1",
+    "cors": "^2.8.5",
+    "cross-env": "^7.0.2",
+    "crypto-js": "^4.1.1",
+    "dotenv": "^8.6.0",
+    "env-cmd": "^10.1.0",
+    "express": "^4.17.1",
+    "expression-eval": "^5.0.0",
+    "fs": "^0.0.1-security",
+    "fs-extra": "^9.0.1",
+    "github-api": "^3.4.0",
+    "joi": "^17.4.0",
+    "jsonwebtoken": "^8.5.1",
+    "mailgun.js": "^3.3.2",
+    "moment": "^2.28.0",
+    "mongodb": "^3.6.2",
+    "mongoose": "^5.13.14",
+    "morgan": "^1.10.0",
+    "mssql": "^7.3.0",
+    "multer": "^1.4.2",
+    "mysql": "^2.18.1",
+    "mysql2": "^2.3.3",
+    "mysqldump": "^3.2.0",
+    "nodemailer": "^6.6.3",
+    "openai": "^4.0.0",
+    "openapi2apigee": "^0.9.0",
+    "oracledb": "^5.5.0",
+    "path": "^0.12.7",
+    "pg": "^8.7.1",
+    "pg-hstore": "^2.3.4",
+    "querystring": "^0.2.1",
+    "request": "^2.88.2",
+    "sequelize": "^6.31.0",
+    "shortid": "^2.2.15",
+    "socket.io": "^4.5.4",
+    "stripe": "^8.161.0",
+    "uuid": "^8.3.0"
+  },
+  "scripts": {
+    "build-docker": "npx webpack --mode=production",
+    "start-docker": "node dist/bundle.js",
+    "start": "cross-env NODE_ENV=dev node ./src/index.js",
+    "start-dev": "cross-env NODE_ENV=dev nodemon ./src/index.js",
+    "start-test": "cross-env NODE_ENV=test node ./src/index.js",
+    "start-stage": "cross-env NODE_ENV=stage node ./src/index.js",
+    "start-prod": "cross-env NODE_ENV=prod node ./src/index.js"
+  },
+  "nodemonConfig": {
+    "ignore": [
+      "uploads",
+      "codegen_templates"
+    ]
+  },
+  "devDependencies": {
+    "@babel/core": "^7.22.5",
+    "@babel/preset-env": "^7.22.5",
+    "babel-loader": "^9.1.2",
+    "dotenv-webpack": "^8.0.1",
+    "nodemon": "^2.0.7",
+    "webpack": "^5.88.1",
+    "webpack-cli": "^5.1.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitlab.com/ezapi-designer/ezapi_designer_backend.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://gitlab.com/ezapi-designer/ezapi_designer_backend/issues"
+  },
+  "homepage": "https://gitlab.com/ezapi-designer/ezapi_designer_backend#readme"
+}
