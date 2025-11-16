@@ -78,7 +78,7 @@ EOF
           echo "Building Node.js Backend..."
           npm install
           # Create production environment file
-          cat > .env.prod << EOF
+          cat > .env.dev << EOF
 PORT=9001
 MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
 WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
