@@ -45,7 +45,7 @@ jobs:
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 4. Build Python Miner - FIXED: Use wheel-compatible versions
+      # 4. Build Python Miner
       - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
@@ -57,34 +57,47 @@ jobs:
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
-          # Install system build dependencies for numpy/pandas
           sudo apt-get update
           sudo apt-get install -y build-essential python3-dev
-          # Install compatible versions with pre-built wheels
           pip install flask==2.3.3 flask-cors==4.0.0 requests==2.31.0 
           pip install numpy==1.24.3 pandas==2.0.3 sqlalchemy==2.0.23
           pip install pymongo==4.6.1 psycopg2-binary==2.9.7 pyjwt==2.8.0 python-decouple==3.8
-          # Create requirements file
           pip freeze | grep -v 'pkg-resources' > requirements_compatible.txt
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*" "requirements_clean.txt"
 
-      # 5. Build Node.js Backend
+      # 5. Build Node.js Backend - UPDATED: All variables from secrets
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
           npm install
-          # Create production environment file
           cat > .env.prod << EOF
-          PORT=8001
+          FILE_UPLOAD_PATH=${{ secrets.FILE_UPLOAD_PATH }}
+          DUMP_PATH=${{ secrets.DUMP_PATH }}
+          PORT=${{ secrets.NODE_BACKEND_PORT }}
+          AI_SERVER_URL=${{ secrets.AI_SERVER_URL }}
+          APIOPS_MODEL_URL=${{ secrets.APIOPS_MODEL_URL }}
           MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
-          WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          STRIPE_LIVE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+          REDIRECT_URI=${{ secrets.REDIRECT_URI }}
           CLIENT_ID=${{ secrets.LINKEDIN_CLIENT_ID }}
           CLIENT_SECRET=${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          STRIPE_LIVE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PAYMENT_WEBHOOK=${{ secrets.STRIPE_PAYMENT_WEBHOOK }}
+          MAILGUN_DOMAIN=${{ secrets.MAILGUN_DOMAIN }}
           MAILGUN_API_KEY=${{ secrets.MAILGUN_API_KEY }}
+          FREEPROJECTS_LIMIT=${{ secrets.FREEPROJECTS_LIMIT }}
+          MEMBERS_LIMIT=${{ secrets.MEMBERS_LIMIT }}
+          PUBLISH_LIMIT=${{ secrets.PUBLISH_LIMIT }}
+          SHAREDINBOX_EMAILID=${{ secrets.SHAREDINBOX_EMAILID }}
+          SHAREDINBOX_PASSWORD=${{ secrets.SHAREDINBOX_PASSWORD }}
+          O365_SMTP_SERVER=${{ secrets.O365_SMTP_SERVER }}
+          O365_SMTP_PORT=${{ secrets.O365_SMTP_PORT }}
+          GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+          EZAPI_BUCKET=${{ secrets.EZAPI_BUCKET }}
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          JWT_EXPIRE=${{ secrets.JWT_EXPIRE }}
           NODE_ENV=production
           EOF
           rm -f ../node-backend.zip
@@ -105,13 +118,12 @@ jobs:
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "mkdir -p /tmp/ezapi/{ui,codegen,miner,backend,scripts,logs}"
-
-          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/build/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/dist/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
 
-      # 8. Setup and Start Services in /tmp - FIXED: Install build tools on GCP VM
+      # 8. Setup and Start Services in /tmp
       - name: Setup PM2 and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -120,56 +132,39 @@ jobs:
           cat > deploy.sh << 'EOF'
           #!/bin/bash
           DEPLOY_BASE="/tmp/ezapi"
-
-          # Install system dependencies including build tools
           sudo apt-get update
           sudo apt-get install -y python3-venv python3-pip build-essential python3-dev
-
-          # Extract and setup Python app
           cd $DEPLOY_BASE/miner
           unzip -o python-app.zip
           python3 -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
-
-          # Install dependencies from compatible requirements
           if [ -f "requirements_compatible.txt" ]; then
             pip install -r requirements_compatible.txt
           elif [ -f "requirements_clean.txt" ]; then
-            # Fallback with build tools available
             pip install -r requirements_clean.txt
           else
-            # Minimal install if no requirements files
             pip install flask flask-cors requests pymongo psycopg2-binary pyjwt python-decouple
           fi
-
-          # Extract and setup Node.js backend
           cd $DEPLOY_BASE/backend
           unzip -o node-backend.zip
           npm install --production
-          # Check if .env.prod exists and copy it
           if [ -f ".env.prod" ]; then
             cp .env.prod .env
           else
-            echo "WARNING: .env.prod not found, creating basic .env"
             echo "PORT=8001" > .env
             echo "NODE_ENV=production" >> .env
           fi
-
-          # Install PM2 if not present
           if ! command -v pm2 &> /dev/null; then
             curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
             sudo apt-get install -y nodejs
             sudo npm install -g pm2
           fi
-
-          # Deploy with PM2
           pm2 delete all || true
           pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
           pm2 save
           EOF
 
-          # Create ecosystem config with NON-CONFLICTING PORTS
           cat > ecosystem.config.js << 'EOF'
           module.exports = {
             apps: [
@@ -223,7 +218,6 @@ jobs:
 
           scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
-
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
 
       # 9. Final Verification
@@ -232,8 +226,8 @@ jobs:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "GCP /tmp DEPLOYMENT SUCCESSFUL"
-          echo "================================"
+          echo "GCP DEPLOYMENT COMPLETED"
+          echo "========================"
           echo "All services are running with PM2:"
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 status"
           echo ""
@@ -242,5 +236,3 @@ jobs:
           echo "Node.js API:   http://$GCP_HOST:8001"
           echo "Java API:      http://$GCP_HOST:8002"
           echo "Python API:    http://$GCP_HOST:8003"
-          echo ""
-          echo "Note: Using ports 8001-8004 to avoid conflicts with MinIO on port 9000"
