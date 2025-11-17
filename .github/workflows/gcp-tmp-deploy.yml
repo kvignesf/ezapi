@@ -33,12 +33,6 @@ jobs:
           EOF
           npm install
           npm run build
-          mkdir -p build
-          [ -f "index.html" ] && mv index.html build/ || true
-          [ -d "static" ] && mv static build/ || true
-          [ -f "manifest.json" ] && mv manifest.json build/ || true
-          [ -f "conektto.ico" ] && mv conektto.ico build/ || true
-          [ -f "msclarity.js" ] && mv msclarity.js build/ || true
 
       # 3. Build Java Codegen
       - name: Build Java Codegen
@@ -51,7 +45,7 @@ jobs:
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 4. Build Python Miner
+      # 4. Build Python Miner - FIXED: Create compatible requirements
       - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
@@ -63,10 +57,12 @@ jobs:
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
-          pip install flask flask-cors requests numpy pandas sqlalchemy pymongo psycopg2-binary pyjwt python-decouple
-          pip freeze > requirements_clean.txt
+          # Install compatible versions for Python 3.6
+          pip install flask==1.1.4 flask-cors==3.0.10 requests==2.25.1 numpy==1.19.5 pandas==1.1.5 sqlalchemy==1.3.23 pymongo==3.11.4 psycopg2-binary==2.8.6 pyjwt==1.7.1 python-decouple==3.4
+          # Create compatible requirements file
+          pip freeze | grep -v 'pkg-resources' > requirements_compatible.txt
           rm -f ../python-app.zip
-          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "REQUIREMENTS.txt"
+          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*" "requirements_clean.txt"
 
       # 5. Build Node.js Backend
       - name: Build Node.js Backend
@@ -75,7 +71,7 @@ jobs:
           npm install
           # Create production environment file
           cat > .env.prod << EOF
-          PORT=9001
+          PORT=8001
           MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
           WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
@@ -87,7 +83,7 @@ jobs:
           NODE_ENV=production
           EOF
           rm -f ../node-backend.zip
-          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json"
+          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json" "test*" "*.log"
 
       # 6. Setup SSH for GCP
       - name: Setup SSH for GCP
@@ -110,12 +106,63 @@ jobs:
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
 
-      # 8. Setup and Start Services in /tmp
+      # 8. Setup and Start Services in /tmp - FIXED: Compatible ports and Python versions
       - name: Setup PM2 and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
+          cat > deploy.sh << 'EOF'
+          #!/bin/bash
+          DEPLOY_BASE="/tmp/ezapi"
+
+          # Install system dependencies
+          sudo apt-get update
+          sudo apt-get install -y python3-venv python3-pip
+
+          # Extract and setup Python app with compatible versions
+          cd $DEPLOY_BASE/miner
+          unzip -o python-app.zip
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          # Use compatible requirements file
+          if [ -f "requirements_compatible.txt" ]; then
+            pip install -r requirements_compatible.txt
+          else
+            # Fallback to original if compatible doesn't exist
+            pip install -r requirements_clean.txt
+          fi
+
+          # Extract and setup Node.js backend
+          cd $DEPLOY_BASE/backend
+          unzip -o node-backend.zip
+          npm install --production
+          # Check if .env.prod exists and copy it
+          if [ -f ".env.prod" ]; then
+            cp .env.prod .env
+            # Update port in .env to avoid conflicts
+            sed -i 's/PORT=9001/PORT=8001/g' .env
+          else
+            echo "WARNING: .env.prod not found, creating basic .env"
+            echo "PORT=8001" > .env
+            echo "NODE_ENV=production" >> .env
+          fi
+
+          # Install PM2 if not present
+          if ! command -v pm2 &> /dev/null; then
+            curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+            sudo npm install -g pm2
+          fi
+
+          # Deploy with PM2
+          pm2 delete all || true
+          pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
+          pm2 save
+          EOF
+
+          # Create ecosystem config with NON-CONFLICTING PORTS
           cat > ecosystem.config.js << 'EOF'
           module.exports = {
             apps: [
@@ -123,10 +170,8 @@ jobs:
                 name: 'java-codegen',
                 cwd: '/tmp/ezapi/codegen',
                 script: 'java',
-                args: ['-jar', 'java_codgen_api-0.0.1-SNAPSHOT.jar', '--server.port=9002'],
-                env: {
-                  NODE_ENV: 'production'
-                },
+                args: ['-jar', 'java_codgen_api-0.0.1-SNAPSHOT.jar', '--server.port=8002'],
+                env: { NODE_ENV: 'production' },
                 error_file: '/tmp/ezapi/logs/java-err.log',
                 out_file: '/tmp/ezapi/logs/java-out.log',
                 time: true
@@ -134,11 +179,12 @@ jobs:
               {
                 name: 'python-miner',
                 cwd: '/tmp/ezapi/miner',
-                script: 'python3',
+                script: '/tmp/ezapi/miner/venv/bin/python',
                 args: ['app.py'],
-                interpreter: 'none',
-                env: {
-                  NODE_ENV: 'production'
+                env: { 
+                  NODE_ENV: 'production',
+                  FLASK_ENV: 'production',
+                  PORT: 8003
                 },
                 error_file: '/tmp/ezapi/logs/python-err.log',
                 out_file: '/tmp/ezapi/logs/python-out.log',
@@ -149,10 +195,7 @@ jobs:
                 cwd: '/tmp/ezapi/backend',
                 script: 'npm',
                 args: ['start'],
-                interpreter: 'none',
-                env: {
-                  NODE_ENV: 'production'
-                },
+                env: { NODE_ENV: 'production' },
                 error_file: '/tmp/ezapi/logs/node-err.log',
                 out_file: '/tmp/ezapi/logs/node-out.log',
                 time: true
@@ -161,11 +204,8 @@ jobs:
                 name: 'react-ui',
                 cwd: '/tmp/ezapi/ui',
                 script: 'python3',
-                args: ['-m', 'http.server', '9000'],
-                interpreter: 'none',
-                env: {
-                  NODE_ENV: 'production'
-                },
+                args: ['-m', 'http.server', '8004'],
+                env: { NODE_ENV: 'production' },
                 error_file: '/tmp/ezapi/logs/ui-err.log',
                 out_file: '/tmp/ezapi/logs/ui-out.log',
                 time: true
@@ -174,46 +214,10 @@ jobs:
           }
           EOF
 
-          cat > deploy.sh << 'EOF'
-          #!/bin/bash
-          DEPLOY_BASE="/tmp/ezapi"
-
-          # Extract and setup Python app in /tmp
-          cd $DEPLOY_BASE/miner
-          unzip -o python-app.zip > /dev/null 2>&1
-
-          # Extract and setup Node.js backend in /tmp
-          cd $DEPLOY_BASE/backend
-          unzip -o node-backend.zip > /dev/null 2>&1
-          npm install --production
-          cp .env.prod .env
-
-          # Install PM2 if not present
-          if ! command -v pm2 &> /dev/null; then
-            curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-            sudo npm install -g pm2
-          fi
-
-          # Install Python dependencies in /tmp
-          cd $DEPLOY_BASE/miner
-          if [ ! -d "venv" ]; then
-            python3 -m venv venv
-            source venv/bin/activate
-            pip install -r requirements_clean.txt
-          fi
-
-          # Deploy with PM2
-          pm2 delete all || true
-          pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
-          pm2 save
-          EOF
-
           scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
 
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh"
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "cd /tmp/ezapi/scripts && ./deploy.sh"
+          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
 
       # 9. Final Verification
       - name: Final Verification
@@ -221,14 +225,15 @@ jobs:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "✅ GCP /tmp DEPLOYMENT SUCCESSFUL"
+          echo "GCP /tmp DEPLOYMENT SUCCESSFUL"
           echo "================================"
           echo "All services are running with PM2:"
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 status"
-
           echo ""
-          echo "🌐 ACCESS YOUR APPLICATION:"
-          echo "React UI:      http://$GCP_HOST:9000"
-          echo "Node.js API:   http://$GCP_HOST:9001"
-          echo "Java API:      http://$GCP_HOST:9002"
-          echo "Python API:    http://$GCP_HOST:5000"
+          echo "ACCESS YOUR APPLICATION:"
+          echo "React UI:      http://$GCP_HOST:8004"
+          echo "Node.js API:   http://$GCP_HOST:8001"
+          echo "Java API:      http://$GCP_HOST:8002"
+          echo "Python API:    http://$GCP_HOST:8003"
+          echo ""
+          echo "Note: Using ports 8001-8004 to avoid conflicts with MinIO on port 9000"
