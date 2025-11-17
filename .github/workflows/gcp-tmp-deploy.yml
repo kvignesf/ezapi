@@ -1,4 +1,4 @@
-name: EZAPI GCP Temp Deploy
+name: EZAPI GCP Deploy
 
 on:
   push:
@@ -14,7 +14,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Build React UI with .env
       - name: Build React UI
         working-directory: ezapi-ui
         env:
@@ -41,13 +40,12 @@ jobs:
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # Python Miner - Always use venv and install pycryptodome
-      - name: Build Python Miner
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install Core Python Dependencies
+      - name: Build Python Miner
         working-directory: ezapi-miner
         run: |
           python -m venv venv
@@ -56,14 +54,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential python3-dev
           pip install importlib-resources pycryptodome
-          pip install flask==2.3.3 flask-cors==4.0.0 requests==2.31.0 
-          pip install numpy==1.24.3 pandas==2.0.3 sqlalchemy==2.0.23
+          pip install flask==2.3.3 flask-cors==4.0.0 requests==2.31.0 numpy==1.24.3 pandas==2.0.3 sqlalchemy==2.0.23
           pip install pymongo==4.6.1 psycopg2-binary==2.9.7 pyjwt==2.8.0 python-decouple==3.8
           pip freeze | grep -v 'pkg-resources' > requirements_compatible.txt
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*" "requirements_clean.txt"
 
-      # Node.js Backend
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
@@ -100,7 +96,6 @@ jobs:
           rm -f ../node-backend.zip
           zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json" "test*" "*.log"
 
-      # SSH Key Setup
       - name: Setup SSH for GCP
         run: |
           mkdir -p ~/.ssh
@@ -108,7 +103,6 @@ jobs:
           chmod 600 ~/.ssh/gcp_key
           ssh-keyscan -H "${{ secrets.GCP_VM_HOST }}" >> ~/.ssh/known_hosts
 
-      # Rsync Artifacts to VM
       - name: Deploy to GCP VM /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -120,8 +114,7 @@ jobs:
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
 
-      # Deployment and Service Setup Script
-      - name: Setup PM2 and Start Services in /tmp
+      - name: Setup and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
@@ -152,10 +145,7 @@ jobs:
           npm install --production
           if [ -f ".env.prod" ]; then
             cp .env.prod .env
-            echo "✅ Node.js environment file created"
-            grep OPENAI_API_KEY .env || echo "❌ OPENAI_API_KEY not found in .env"
-          else
-            echo "❌ .env.prod not found"
+            echo "✅ Node.js env file created"
           fi
           # Install PM2
           if ! command -v pm2 &>/dev/null; then
@@ -163,8 +153,8 @@ jobs:
             sudo apt-get install -y nodejs
             sudo npm install -g pm2
           fi
-          # Kill any process running on UI port to avoid address-in-use
-          UI_PORT=8004
+          # Kill any process running on new UI port
+          UI_PORT=8080
           UI_PID=$(sudo lsof -ti tcp:$UI_PORT)
           if [ -n "$UI_PID" ]; then
             sudo kill -9 $UI_PID
@@ -177,10 +167,11 @@ jobs:
           sleep 5
           echo "Service status:"
           pm2 status
-          echo "📋 Node.js backend logs:"
+          echo "Node.js backend logs:"
           pm2 logs node-backend --lines 10 --nostream
           EOF
 
+          # Write new ecosystem.config.js on VM with correct env_file and react-ui port
           cat > ecosystem.config.js <<'EOF'
           module.exports = {
             apps: [
@@ -189,10 +180,7 @@ jobs:
                 cwd: '/tmp/ezapi/codegen',
                 script: 'java',
                 args: ['-jar', 'java_codgen_api-0.0.1-SNAPSHOT.jar', '--server.port=8099'],
-                env: { 
-                  NODE_ENV: 'production',
-                  SPRING_PROFILES_ACTIVE: 'prod'
-                },
+                env: { NODE_ENV: 'production', SPRING_PROFILES_ACTIVE: 'prod' },
                 error_file: '/tmp/ezapi/logs/java-err.log',
                 out_file: '/tmp/ezapi/logs/java-out.log',
                 time: true,
@@ -203,11 +191,7 @@ jobs:
                 cwd: '/tmp/ezapi/miner',
                 script: '/tmp/ezapi/miner/venv/bin/python',
                 args: ['app.py'],
-                env: { 
-                  NODE_ENV: 'production',
-                  FLASK_ENV: 'production',
-                  PORT: 8003
-                },
+                env: { NODE_ENV: 'production', FLASK_ENV: 'production', PORT: 8003 },
                 error_file: '/tmp/ezapi/logs/python-err.log',
                 out_file: '/tmp/ezapi/logs/python-out.log',
                 time: true,
@@ -218,10 +202,7 @@ jobs:
                 cwd: '/tmp/ezapi/backend',
                 script: 'npm',
                 args: ['start'],
-                env: { 
-                  NODE_ENV: 'production',
-                  PORT: 8001
-                },
+                env_file: '/tmp/ezapi/backend/.env',
                 error_file: '/tmp/ezapi/logs/node-err.log',
                 out_file: '/tmp/ezapi/logs/node-out.log',
                 time: true,
@@ -231,7 +212,7 @@ jobs:
                 name: 'react-ui',
                 cwd: '/tmp/ezapi/ui',
                 script: 'python3',
-                args: ['-m', 'http.server', '8004'],
+                args: ['-m', 'http.server', '8080'],
                 env: { NODE_ENV: 'production' },
                 error_file: '/tmp/ezapi/logs/ui-err.log',
                 out_file: '/tmp/ezapi/logs/ui-out.log',
@@ -240,12 +221,10 @@ jobs:
             ]
           }
           EOF
-
           scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
 
-      # Verification
       - name: Final Verification
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -260,7 +239,7 @@ jobs:
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 logs --lines 20 --nostream"
           echo ""
           echo "ACCESS YOUR APPLICATION:"
-          echo "React UI:      http://$GCP_HOST:8004"
+          echo "React UI:      http://$GCP_HOST:8080"
           echo "Node.js API:   http://$GCP_HOST:8001"
           echo "Java API:      http://$GCP_HOST:8099"
           echo "Python API:    http://$GCP_HOST:8003"
