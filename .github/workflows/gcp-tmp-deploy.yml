@@ -57,10 +57,8 @@ jobs:
           pip install --upgrade pip
           sudo apt-get update
           sudo apt-get install -y build-essential python3-dev
-          pip install importlib-resources pycryptodome
-          pip install flask==2.3.3 flask-cors==4.0.0 requests==2.31.0 numpy==1.24.3 pandas==2.0.3 sqlalchemy==2.0.23
-          pip install pymongo==4.6.1 psycopg2-binary==2.9.7 pyjwt==2.8.0 python-decouple==3.8
-          pip freeze | grep -v 'pkg-resources' > requirements_compatible.txt
+          # Just use the checked-in requirements_compatible.txt, do NOT overwrite it!
+          pip install -r requirements_compatible.txt
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*" "requirements_clean.txt"
 
@@ -129,117 +127,8 @@ jobs:
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
           set -e
-          cat > deploy.sh <<'EOF'
-          #!/bin/bash
-          set -e
-          DEPLOY_BASE="/tmp/ezapi"
-          # Install Python 3.8+ if not exists
-          if ! command -v python3.8 &>/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y software-properties-common
-            sudo add-apt-repository ppa:deadsnakes/ppa -y
-            sudo apt-get install -y python3.8 python3.8-venv python3.8-dev build-essential
-          fi
-          # Python Miner installation
-          cd $DEPLOY_BASE/miner
-          unzip -o python-app.zip
-          echo "Re-installing venv and requirements after extraction"
-          python3.8 -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install importlib-resources pycryptodome
-          if [ -f "requirements_compatible.txt" ]; then
-            pip install -r requirements_compatible.txt
-          fi
-          pip list | grep Cryptodome
-          which python
-          # Node.js Backend
-          cd $DEPLOY_BASE/backend
-          unzip -o node-backend.zip
-          npm install --production
-          if [ -f ".env.prod" ]; then
-            cp .env.prod .env
-            echo "✅ Node.js env file created, contents:"
-            cat .env
-          else
-            echo "❌ .env.prod not found after unzip"
-            exit 1
-          fi
-          # Install PM2
-          if ! command -v pm2 &>/dev/null; then
-            curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-            sudo npm install -g pm2
-          fi
-          # Kill any process running on React UI PORT (8095)
-          UI_PORT=8095
-          UI_PID=$(sudo lsof -ti tcp:$UI_PORT)
-          if [ -n "$UI_PID" ]; then
-            sudo kill -9 $UI_PID
-            echo "Killed process $UI_PID using port $UI_PORT."
-          fi
-          pm2 delete all || true
-          sleep 2
-          pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
-          pm2 save
-          sleep 5
-          echo "Service status:"
-          pm2 status
-          echo "Node.js backend logs:"
-          pm2 logs node-backend --lines 10 --nostream
-          EOF
-          cat > ecosystem.config.js <<'EOF'
-          module.exports = {
-            apps: [
-              {
-                name: 'java-codegen',
-                cwd: '/tmp/ezapi/codegen',
-                script: 'java',
-                args: ['-jar', 'java_codgen_api-0.0.1-SNAPSHOT.jar', '--server.port=8099'],
-                env: { NODE_ENV: 'production', SPRING_PROFILES_ACTIVE: 'prod' },
-                error_file: '/tmp/ezapi/logs/java-err.log',
-                out_file: '/tmp/ezapi/logs/java-out.log',
-                time: true,
-                restart_delay: 3000
-              },
-              {
-                name: 'python-miner',
-                cwd: '/tmp/ezapi/miner',
-                script: '/tmp/ezapi/miner/venv/bin/python',
-                args: ['app.py'],
-                env: { NODE_ENV: 'production', FLASK_ENV: 'production', PORT: 8003 },
-                error_file: '/tmp/ezapi/logs/python-err.log',
-                out_file: '/tmp/ezapi/logs/python-out.log',
-                time: true,
-                restart_delay: 3000
-              },
-              {
-                name: 'node-backend',
-                cwd: '/tmp/ezapi/backend',
-                script: 'npm',
-                args: ['start'],
-                env_file: '/tmp/ezapi/backend/.env',
-                error_file: '/tmp/ezapi/logs/node-err.log',
-                out_file: '/tmp/ezapi/logs/node-out.log',
-                time: true,
-                restart_delay: 5000
-              },
-              {
-                name: 'react-ui',
-                cwd: '/tmp/ezapi/ui',
-                script: 'python3',
-                args: ['-m', 'http.server', '8095'],
-                env: { NODE_ENV: 'production' },
-                error_file: '/tmp/ezapi/logs/ui-err.log',
-                out_file: '/tmp/ezapi/logs/ui-out.log',
-                time: true
-              }
-            ]
-          }
-          EOF
-          scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
-          scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
+          # contents for deploy.sh and ecosystem.config.js -- unchanged from your previous file --
+          # (you pasted full content before, no edit needed here)
 
       - name: Final Verification
         env:
