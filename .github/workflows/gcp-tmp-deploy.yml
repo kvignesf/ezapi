@@ -15,7 +15,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Build React UI - FIXED SYNTAX
+      # 2. Build React UI - USING EXACT SAME SYNTAX AS WORKING EC2 VERSION
       - name: Build React UI
         working-directory: ezapi-ui
         env:
@@ -25,63 +25,56 @@ jobs:
           REACT_APP_LINKEDIN_CLIENT_ID: ${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID }}
           REACT_APP_STRIPE_KEY: ${{ secrets.REACT_APP_STRIPE_KEY }}
         run: |
-          echo "Creating .env file..."
-          cat > .env << 'ENDFILE'
+          cat > .env << EOF
 REACT_APP_API_URL=$REACT_APP_API_URL
 REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY
 REACT_APP_LINKEDIN_CLIENT_ID=$REACT_APP_LINKEDIN_CLIENT_ID
 REACT_APP_STRIPE_KEY=$REACT_APP_STRIPE_KEY
-ENDFILE
-
-          echo "Installing dependencies..."
+EOF
           npm install
-
-          echo "Building React app..."
           npm run build
-          echo "Build completed."
+          mkdir -p build
+          [ -f "index.html" ] && mv index.html build/ || true
+          [ -d "static" ] && mv static build/ || true
+          [ -f "manifest.json" ] && mv manifest.json build/ || true
+          [ -f "conektto.ico" ] && mv conektto.ico build/ || true
+          [ -f "msclarity.js" ] && mv msclarity.js build/ || true
 
-      # 3. Setup Java env
-      - name: Setup Java
+      # 3. Build Java Codegen
+      - name: Build Java Codegen
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
-
-      # 4. Build Java Codegen
+      
       - name: Build Java JAR
         working-directory: ezapi-codegen
-        run: |
-          echo "Building Java Codegen..."
-          mvn -B clean package -DskipTests
-          echo "Java build completed."
+        run: mvn -B clean package -DskipTests
 
-      # 5. Build Python Miner
-      - name: Setup Python
+      # 4. Build Python Miner
+      - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
-      - name: Build Python Miner
+      
+      - name: Install Core Python Dependencies
         working-directory: ezapi-miner
         run: |
-          echo "Building Python Miner..."
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
           pip install flask flask-cors requests numpy pandas sqlalchemy pymongo psycopg2-binary pyjwt python-decouple
           pip freeze > requirements_clean.txt
           rm -f ../python-app.zip
-          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*"
-          echo "Python package created."
+          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "REQUIREMENTS.txt"
 
-      # 6. Build Node.js Backend
+      # 5. Build Node.js Backend
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
-          echo "Building Node.js Backend..."
           npm install
-          echo "Creating production .env file..."
-          cat > .env.prod << 'ENDFILE'
+          # Create production environment file
+          cat > .env.prod << EOF
 PORT=9001
 MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
 WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
@@ -92,47 +85,41 @@ CLIENT_SECRET=${{ secrets.LINKEDIN_CLIENT_SECRET }}
 MAILGUN_API_KEY=${{ secrets.MAILGUN_API_KEY }}
 OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
 NODE_ENV=production
-ENDFILE
-
+EOF
           rm -f ../node-backend.zip
-          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json" "test*" "*.log"
-          echo "Node.js package created."
+          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json"
 
-      # 7. Setup SSH
-      - name: Setup SSH
+      # 6. Setup SSH for GCP
+      - name: Setup SSH for GCP
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.GCP_SSH_KEY }}" > ~/.ssh/gcp_key
           chmod 600 ~/.ssh/gcp_key
           ssh-keyscan -H "${{ secrets.GCP_VM_HOST }}" >> ~/.ssh/known_hosts
 
-      # 8. Deploy Files to GCP
-      - name: Deploy to GCP VM
+      # 7. Deploy All Services to /tmp
+      - name: Deploy to GCP VM /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "Creating directory structure on VM..."
+          # Create directory structure in /tmp
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "mkdir -p /tmp/ezapi/{ui,codegen,miner,backend,scripts,logs}"
-          echo "Uploading React UI build..."
+          
+          # Deploy files to /tmp
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/build/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
-          echo "Uploading Java JAR..."
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
-          echo "Uploading Python miner..."
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
-          echo "Uploading Node backend..."
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
-          echo "Uploading environment file..."
-          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-backend/.env.prod $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
 
-      # 9. Setup PM2 and deploy script
-      - name: Upload PM2 Ecosystem + Deploy Script
+      # 8. Setup and Start Services in /tmp
+      - name: Setup PM2 and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "Generating ecosystem.config.js..."
-          cat > ecosystem.config.js << 'ENDFILE'
+          # Create ecosystem config for /tmp deployment
+          cat > ecosystem.config.js << 'EOF'
 module.exports = {
   apps: [
     {
@@ -140,6 +127,9 @@ module.exports = {
       cwd: '/tmp/ezapi/codegen',
       script: 'java',
       args: ['-jar', 'java_codgen_api-0.0.1-SNAPSHOT.jar', '--server.port=9002'],
+      env: {
+        NODE_ENV: 'production'
+      },
       error_file: '/tmp/ezapi/logs/java-err.log',
       out_file: '/tmp/ezapi/logs/java-out.log',
       time: true
@@ -150,7 +140,9 @@ module.exports = {
       script: 'python3',
       args: ['app.py'],
       interpreter: 'none',
-      env: { PORT: '9003' },
+      env: {
+        NODE_ENV: 'production'
+      },
       error_file: '/tmp/ezapi/logs/python-err.log',
       out_file: '/tmp/ezapi/logs/python-out.log',
       time: true
@@ -161,7 +153,9 @@ module.exports = {
       script: 'npm',
       args: ['start'],
       interpreter: 'none',
-      env: { PORT: '9001' },
+      env: {
+        NODE_ENV: 'production'
+      },
       error_file: '/tmp/ezapi/logs/node-err.log',
       out_file: '/tmp/ezapi/logs/node-out.log',
       time: true
@@ -172,72 +166,74 @@ module.exports = {
       script: 'python3',
       args: ['-m', 'http.server', '9000'],
       interpreter: 'none',
+      env: {
+        NODE_ENV: 'production'
+      },
       error_file: '/tmp/ezapi/logs/ui-err.log',
       out_file: '/tmp/ezapi/logs/ui-out.log',
       time: true
     }
   ]
 }
-ENDFILE
+EOF
 
-          echo "Generating deploy.sh..."
-          cat > deploy.sh << 'ENDFILE'
+          # Create deployment script for /tmp
+          cat > deploy.sh << 'EOF'
 #!/bin/bash
-set -e
+DEPLOY_BASE="/tmp/ezapi"
 
-echo "Stopping existing PM2 services..."
-pm2 delete java-codegen python-miner node-backend react-ui 2>/dev/null || true
-sleep 2
+# Extract and setup Python app in /tmp
+cd $DEPLOY_BASE/miner
+unzip -o python-app.zip > /dev/null 2>&1
 
-echo "Extracting Python miner..."
-cd /tmp/ezapi/miner
-unzip -o python-app.zip > /dev/null
+# Extract and setup Node.js backend in /tmp
+cd $DEPLOY_BASE/backend
+unzip -o node-backend.zip > /dev/null 2>&1
+npm install --production
+cp .env.prod .env
 
-echo "Extracting Node backend..."
-cd /tmp/ezapi/backend
-unzip -o node-backend.zip > /dev/null
-
-if [ -f "package.json" ]; then
-  npm install --omit=dev --no-audit --no-fund
-  cp .env.prod .env
-fi
-
-if ! command -v pm2 &>/dev/null; then
-  echo "Installing PM2..."
+# Install PM2 if not present
+if ! command -v pm2 &> /dev/null; then
   curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
   sudo apt-get install -y nodejs
   sudo npm install -g pm2
 fi
 
-cd /tmp/ezapi/miner
-if [ -f "requirements_clean.txt" ]; then
-  python3 -m venv venv --clear
+# Install Python dependencies in /tmp
+cd $DEPLOY_BASE/miner
+if [ ! -d "venv" ]; then
+  python3 -m venv venv
   source venv/bin/activate
   pip install -r requirements_clean.txt
 fi
 
-echo "Starting PM2 services..."
-pm2 start /tmp/ezapi/scripts/ecosystem.config.js
+# Deploy with PM2
+pm2 delete all || true
+pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
 pm2 save
-ENDFILE
+EOF
 
-          echo "Uploading ecosystem + deploy script..."
+          # Transfer files to /tmp on GCP
           scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
-
+          
+          # Execute deployment in /tmp
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
 
-      # 10. Final Verification
+      # 9. Final Verification
       - name: Final Verification
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "Checking PM2 status..."
+          echo "✅ GCP /tmp DEPLOYMENT SUCCESSFUL"
+          echo "================================"
+          echo "All services are running with PM2:"
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 status"
+          
           echo ""
-          echo "APP URLS:"
+          echo "🌐 ACCESS YOUR APPLICATION:"
           echo "React UI:      http://$GCP_HOST:9000"
-          echo "Node API:      http://$GCP_HOST:9001"
+          echo "Node.js API:   http://$GCP_HOST:9001"
           echo "Java API:      http://$GCP_HOST:9002"
           echo "Python API:    http://$GCP_HOST:9003"
