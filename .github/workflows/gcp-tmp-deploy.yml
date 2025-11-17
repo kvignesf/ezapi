@@ -11,11 +11,10 @@ jobs:
     timeout-minutes: 25
 
     steps:
-      # 1. Checkout repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Build React UI
+      # Build React UI with .env
       - name: Build React UI
         working-directory: ezapi-ui
         env:
@@ -25,16 +24,13 @@ jobs:
           REACT_APP_LINKEDIN_CLIENT_ID: ${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID }}
           REACT_APP_STRIPE_KEY: ${{ secrets.REACT_APP_STRIPE_KEY }}
         run: |
-          cat > .env << EOF
-          REACT_APP_API_URL=$REACT_APP_API_URL
-          REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY
-          REACT_APP_LINKEDIN_CLIENT_ID=$REACT_APP_LINKEDIN_CLIENT_ID
-          REACT_APP_STRIPE_KEY=$REACT_APP_STRIPE_KEY
-          EOF
+          echo "REACT_APP_API_URL=$REACT_APP_API_URL" > .env
+          echo "REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY" >> .env
+          echo "REACT_APP_LINKEDIN_CLIENT_ID=$REACT_APP_LINKEDIN_CLIENT_ID" >> .env
+          echo "REACT_APP_STRIPE_KEY=$REACT_APP_STRIPE_KEY" >> .env
           npm install
           npm run build
 
-      # 3. Build Java Codegen
       - name: Build Java Codegen
         uses: actions/setup-java@v3
         with:
@@ -45,7 +41,7 @@ jobs:
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 4. Build Python Miner
+      # Python Miner - Always use venv and install pycryptodome
       - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
@@ -59,8 +55,7 @@ jobs:
           pip install --upgrade pip
           sudo apt-get update
           sudo apt-get install -y build-essential python3-dev
-          # Install importlib-resources for compatibility
-          pip install importlib-resources
+          pip install importlib-resources pycryptodome
           pip install flask==2.3.3 flask-cors==4.0.0 requests==2.31.0 
           pip install numpy==1.24.3 pandas==2.0.3 sqlalchemy==2.0.23
           pip install pymongo==4.6.1 psycopg2-binary==2.9.7 pyjwt==2.8.0 python-decouple==3.8
@@ -68,12 +63,12 @@ jobs:
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*" "requirements_clean.txt"
 
-      # 5. Build Node.js Backend - VERIFIED: All required secrets included
+      # Node.js Backend
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
           npm install
-          cat > .env.prod << 'EOF'
+          cat > .env.prod <<EOF
           FILE_UPLOAD_PATH=${{ secrets.FILE_UPLOAD_PATH }}
           DUMP_PATH=${{ secrets.DUMP_PATH }}
           PORT=${{ secrets.NODE_BACKEND_PORT }}
@@ -105,7 +100,7 @@ jobs:
           rm -f ../node-backend.zip
           zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json" "test*" "*.log"
 
-      # 6. Setup SSH for GCP
+      # SSH Key Setup
       - name: Setup SSH for GCP
         run: |
           mkdir -p ~/.ssh
@@ -113,7 +108,7 @@ jobs:
           chmod 600 ~/.ssh/gcp_key
           ssh-keyscan -H "${{ secrets.GCP_VM_HOST }}" >> ~/.ssh/known_hosts
 
-      # 7. Deploy All Services to /tmp
+      # Rsync Artifacts to VM
       - name: Deploy to GCP VM /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -125,73 +120,68 @@ jobs:
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
 
-      # 8. Setup and Start Services in /tmp
+      # Deployment and Service Setup Script
       - name: Setup PM2 and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          cat > deploy.sh << 'EOF'
+          cat > deploy.sh <<'EOF'
           #!/bin/bash
           DEPLOY_BASE="/tmp/ezapi"
-          
           # Install Python 3.8+ if not exists
-          if ! command -v python3.8 &> /dev/null; then
+          if ! command -v python3.8 &>/dev/null; then
             sudo apt-get update
             sudo apt-get install -y software-properties-common
             sudo add-apt-repository ppa:deadsnakes/ppa -y
             sudo apt-get install -y python3.8 python3.8-venv python3.8-dev build-essential
           fi
-          
-          # Setup Python Miner
+          # Python Miner
           cd $DEPLOY_BASE/miner
           unzip -o python-app.zip
           python3.8 -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
-          pip install importlib-resources
+          pip install importlib-resources pycryptodome
           if [ -f "requirements_compatible.txt" ]; then
             pip install -r requirements_compatible.txt
-          elif [ -f "requirements_clean.txt" ]; then
-            pip install -r requirements_clean.txt
-          else
-            pip install flask flask-cors requests pymongo psycopg2-binary pyjwt python-decouple importlib-resources
           fi
-          
-          # Setup Node.js Backend
+          # Node.js Backend
           cd $DEPLOY_BASE/backend
           unzip -o node-backend.zip
           npm install --production
           if [ -f ".env.prod" ]; then
             cp .env.prod .env
-            echo "✅ Node.js environment file created successfully"
-            echo "📋 Checking OPENAI_API_KEY in .env:"
+            echo "✅ Node.js environment file created"
             grep OPENAI_API_KEY .env || echo "❌ OPENAI_API_KEY not found in .env"
           else
-            echo "❌ .env.prod not found, creating basic .env"
-            echo "PORT=8001" > .env
-            echo "NODE_ENV=production" >> .env
+            echo "❌ .env.prod not found"
           fi
-          
-          # Install PM2 if not exists
-          if ! command -v pm2 &> /dev/null; then
+          # Install PM2
+          if ! command -v pm2 &>/dev/null; then
             curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
             sudo apt-get install -y nodejs
             sudo npm install -g pm2
           fi
-          
+          # Kill any process running on UI port to avoid address-in-use
+          UI_PORT=8004
+          UI_PID=$(sudo lsof -ti tcp:$UI_PORT)
+          if [ -n "$UI_PID" ]; then
+            sudo kill -9 $UI_PID
+            echo "Killed process $UI_PID using port $UI_PORT."
+          fi
           pm2 delete all || true
           sleep 2
           pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
           pm2 save
           sleep 5
-          echo "🔍 Checking service status:"
+          echo "Service status:"
           pm2 status
-          echo "📋 Checking Node.js backend logs:"
-          pm2 logs node-backend --lines 5 --nostream
+          echo "📋 Node.js backend logs:"
+          pm2 logs node-backend --lines 10 --nostream
           EOF
 
-          cat > ecosystem.config.js << 'EOF'
+          cat > ecosystem.config.js <<'EOF'
           module.exports = {
             apps: [
               {
@@ -255,25 +245,24 @@ jobs:
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
 
-      # 9. Final Verification with better error reporting
+      # Verification
       - name: Final Verification
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "🚀 GCP DEPLOYMENT COMPLETED"
+          echo "GCP DEPLOYMENT COMPLETED"
           echo "=========================="
-          echo "📊 Checking service status:"
+          echo "Service status:"
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 status"
           echo ""
-          echo "🔍 Checking for errors in logs:"
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 logs --lines 10 --nostream"
+          echo "Checking for errors in logs:"
+          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 logs --lines 20 --nostream"
           echo ""
-          echo "🌐 ACCESS YOUR APPLICATION:"
+          echo "ACCESS YOUR APPLICATION:"
           echo "React UI:      http://$GCP_HOST:8004"
-          echo "Node.js API:   http://$GCP_HOST:8001" 
+          echo "Node.js API:   http://$GCP_HOST:8001"
           echo "Java API:      http://$GCP_HOST:8099"
           echo "Python API:    http://$GCP_HOST:8003"
-          echo ""
-          echo "✅ If any service shows 'error' status, check the specific logs with:"
-          echo "   pm2 logs <service-name>"
+          echo "If any service shows 'error', check logs with: pm2 logs <service-name>"
+
