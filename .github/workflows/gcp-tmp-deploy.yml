@@ -72,8 +72,8 @@ jobs:
           APIOPS_MODEL_URL=${{ secrets.APIOPS_MODEL_URL }}
           MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
           REDIRECT_URI=${{ secrets.REDIRECT_URI }}
-          CLIENT_ID=${{ secrets.LINKEDIN_CLIENT_ID }}
-          CLIENT_SECRET=${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          CLIENT_ID=${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET=${{ secrets.CLIENT_SECRET }}
           STRIPE_LIVE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_PAYMENT_WEBHOOK=${{ secrets.STRIPE_PAYMENT_WEBHOOK }}
           MAILGUN_DOMAIN=${{ secrets.MAILGUN_DOMAIN }}
@@ -153,8 +153,8 @@ jobs:
             sudo apt-get install -y nodejs
             sudo npm install -g pm2
           fi
-          # Kill any process running on new UI port
-          UI_PORT=8080
+          # Kill any process running on new UI port (8095) to avoid address-in-use
+          UI_PORT=8095
           UI_PID=$(sudo lsof -ti tcp:$UI_PORT)
           if [ -n "$UI_PID" ]; then
             sudo kill -9 $UI_PID
@@ -170,7 +170,6 @@ jobs:
           echo "Node.js backend logs:"
           pm2 logs node-backend --lines 10 --nostream
           EOF
-
           # Write new ecosystem.config.js on VM with correct env_file and react-ui port
           cat > ecosystem.config.js <<'EOF'
           module.exports = {
@@ -212,7 +211,7 @@ jobs:
                 name: 'react-ui',
                 cwd: '/tmp/ezapi/ui',
                 script: 'python3',
-                args: ['-m', 'http.server', '8080'],
+                args: ['-m', 'http.server', '8095'],
                 env: { NODE_ENV: 'production' },
                 error_file: '/tmp/ezapi/logs/ui-err.log',
                 out_file: '/tmp/ezapi/logs/ui-out.log',
@@ -239,7 +238,7 @@ jobs:
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 logs --lines 20 --nostream"
           echo ""
           echo "ACCESS YOUR APPLICATION:"
-          echo "React UI:      http://$GCP_HOST:8080"
+          echo "React UI:      http://$GCP_HOST:8095"
           echo "Node.js API:   http://$GCP_HOST:8001"
           echo "Java API:      http://$GCP_HOST:8099"
           echo "Python API:    http://$GCP_HOST:8003"
