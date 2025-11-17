@@ -23,6 +23,7 @@ jobs:
           REACT_APP_LINKEDIN_CLIENT_ID: ${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID }}
           REACT_APP_STRIPE_KEY: ${{ secrets.REACT_APP_STRIPE_KEY }}
         run: |
+          set -e
           echo "REACT_APP_API_URL=$REACT_APP_API_URL" > .env
           echo "REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY" >> .env
           echo "REACT_APP_LINKEDIN_CLIENT_ID=$REACT_APP_LINKEDIN_CLIENT_ID" >> .env
@@ -38,7 +39,9 @@ jobs:
 
       - name: Build Java JAR
         working-directory: ezapi-codegen
-        run: mvn -B clean package -DskipTests
+        run: |
+          set -e
+          mvn -B clean package -DskipTests
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -48,6 +51,7 @@ jobs:
       - name: Build Python Miner
         working-directory: ezapi-miner
         run: |
+          set -e
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
@@ -63,6 +67,7 @@ jobs:
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
+          set -e
           npm install
           cat > .env.prod <<EOF
           FILE_UPLOAD_PATH=${{ secrets.FILE_UPLOAD_PATH }}
@@ -94,10 +99,13 @@ jobs:
           NODE_ENV=production
           EOF
           rm -f ../node-backend.zip
-          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json" "test*" "*.log"
+          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env" "*.key" "creds*.json" "test*" "*.log"
+          echo "Created .env.prod for deploy:"
+          cat .env.prod
 
       - name: Setup SSH for GCP
         run: |
+          set -e
           mkdir -p ~/.ssh
           echo "${{ secrets.GCP_SSH_KEY }}" > ~/.ssh/gcp_key
           chmod 600 ~/.ssh/gcp_key
@@ -108,6 +116,7 @@ jobs:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
+          set -e
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "mkdir -p /tmp/ezapi/{ui,codegen,miner,backend,scripts,logs}"
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/dist/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
@@ -119,8 +128,10 @@ jobs:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
+          set -e
           cat > deploy.sh <<'EOF'
           #!/bin/bash
+          set -e
           DEPLOY_BASE="/tmp/ezapi"
           # Install Python 3.8+ if not exists
           if ! command -v python3.8 &>/dev/null; then
@@ -129,9 +140,10 @@ jobs:
             sudo add-apt-repository ppa:deadsnakes/ppa -y
             sudo apt-get install -y python3.8 python3.8-venv python3.8-dev build-essential
           fi
-          # Python Miner
+          # Python Miner installation
           cd $DEPLOY_BASE/miner
           unzip -o python-app.zip
+          echo "Re-installing venv and requirements after extraction"
           python3.8 -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
@@ -139,13 +151,19 @@ jobs:
           if [ -f "requirements_compatible.txt" ]; then
             pip install -r requirements_compatible.txt
           fi
+          pip list | grep Cryptodome
+          which python
           # Node.js Backend
           cd $DEPLOY_BASE/backend
           unzip -o node-backend.zip
           npm install --production
           if [ -f ".env.prod" ]; then
             cp .env.prod .env
-            echo "✅ Node.js env file created"
+            echo "✅ Node.js env file created, contents:"
+            cat .env
+          else
+            echo "❌ .env.prod not found after unzip"
+            exit 1
           fi
           # Install PM2
           if ! command -v pm2 &>/dev/null; then
@@ -153,7 +171,7 @@ jobs:
             sudo apt-get install -y nodejs
             sudo npm install -g pm2
           fi
-          # Kill any process running on new UI port (8095) to avoid address-in-use
+          # Kill any process running on React UI PORT (8095)
           UI_PORT=8095
           UI_PID=$(sudo lsof -ti tcp:$UI_PORT)
           if [ -n "$UI_PID" ]; then
@@ -170,7 +188,6 @@ jobs:
           echo "Node.js backend logs:"
           pm2 logs node-backend --lines 10 --nostream
           EOF
-          # Write new ecosystem.config.js on VM with correct env_file and react-ui port
           cat > ecosystem.config.js <<'EOF'
           module.exports = {
             apps: [
@@ -229,6 +246,7 @@ jobs:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
+          set -e
           echo "GCP DEPLOYMENT COMPLETED"
           echo "=========================="
           echo "Service status:"
