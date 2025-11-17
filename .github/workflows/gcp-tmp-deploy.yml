@@ -15,7 +15,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Build React UI
+      # 2. Build React UI - FIXED SYNTAX
       - name: Build React UI
         working-directory: ezapi-ui
         env:
@@ -26,12 +26,12 @@ jobs:
           REACT_APP_STRIPE_KEY: ${{ secrets.REACT_APP_STRIPE_KEY }}
         run: |
           echo "Creating .env file..."
-          cat > .env <<EOF
-REACT_APP_API_URL=${REACT_APP_API_URL}
-REACT_APP_AES_ENCRYPTION_KEY=${REACT_APP_AES_ENCRYPTION_KEY}
-REACT_APP_LINKEDIN_CLIENT_ID=${REACT_APP_LINKEDIN_CLIENT_ID}
-REACT_APP_STRIPE_KEY=${REACT_APP_STRIPE_KEY}
-EOF
+          cat > .env << 'ENDFILE'
+REACT_APP_API_URL=$REACT_APP_API_URL
+REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY
+REACT_APP_LINKEDIN_CLIENT_ID=$REACT_APP_LINKEDIN_CLIENT_ID
+REACT_APP_STRIPE_KEY=$REACT_APP_STRIPE_KEY
+ENDFILE
 
           echo "Installing dependencies..."
           npm install
@@ -70,7 +70,6 @@ EOF
           pip install --upgrade pip
           pip install flask flask-cors requests numpy pandas sqlalchemy pymongo psycopg2-binary pyjwt python-decouple
           pip freeze > requirements_clean.txt
-
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*"
           echo "Python package created."
@@ -81,9 +80,8 @@ EOF
         run: |
           echo "Building Node.js Backend..."
           npm install
-
           echo "Creating production .env file..."
-          cat > .env.prod <<EOF
+          cat > .env.prod << 'ENDFILE'
 PORT=9001
 MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
 WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
@@ -94,7 +92,7 @@ CLIENT_SECRET=${{ secrets.LINKEDIN_CLIENT_SECRET }}
 MAILGUN_API_KEY=${{ secrets.MAILGUN_API_KEY }}
 OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
 NODE_ENV=production
-EOF
+ENDFILE
 
           rm -f ../node-backend.zip
           zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json" "test*" "*.log"
@@ -116,19 +114,14 @@ EOF
         run: |
           echo "Creating directory structure on VM..."
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "mkdir -p /tmp/ezapi/{ui,codegen,miner,backend,scripts,logs}"
-
           echo "Uploading React UI build..."
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/build/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
-
           echo "Uploading Java JAR..."
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
-
           echo "Uploading Python miner..."
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
-
           echo "Uploading Node backend..."
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
-
           echo "Uploading environment file..."
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-backend/.env.prod $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
 
@@ -139,7 +132,7 @@ EOF
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
           echo "Generating ecosystem.config.js..."
-          cat > ecosystem.config.js <<EOF
+          cat > ecosystem.config.js << 'ENDFILE'
 module.exports = {
   apps: [
     {
@@ -185,10 +178,10 @@ module.exports = {
     }
   ]
 }
-EOF
+ENDFILE
 
           echo "Generating deploy.sh..."
-          cat > deploy.sh <<EOF
+          cat > deploy.sh << 'ENDFILE'
 #!/bin/bash
 set -e
 
@@ -226,7 +219,7 @@ fi
 echo "Starting PM2 services..."
 pm2 start /tmp/ezapi/scripts/ecosystem.config.js
 pm2 save
-EOF
+ENDFILE
 
           echo "Uploading ecosystem + deploy script..."
           scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
@@ -242,11 +235,9 @@ EOF
         run: |
           echo "Checking PM2 status..."
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 status"
-
           echo ""
           echo "APP URLS:"
           echo "React UI:      http://$GCP_HOST:9000"
           echo "Node API:      http://$GCP_HOST:9001"
           echo "Java API:      http://$GCP_HOST:9002"
           echo "Python API:    http://$GCP_HOST:9003"
-
