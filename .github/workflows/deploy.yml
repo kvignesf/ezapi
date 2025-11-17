@@ -1,0 +1,251 @@
+name: EZAPI Full Stack Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Build React UI
+      - name: Build React UI
+        working-directory: ezapi-ui
+        env:
+          HUSKY: 0
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
+          REACT_APP_AES_ENCRYPTION_KEY: ${{ secrets.REACT_APP_AES_ENCRYPTION_KEY }}
+          REACT_APP_LINKEDIN_CLIENT_ID: ${{ secrets.REACT_APP_LINKEDIN_CLIENT_ID }}
+          REACT_APP_STRIPE_KEY: ${{ secrets.REACT_APP_STRIPE_KEY }}
+        run: |
+          cat > .env << EOF
+          REACT_APP_API_URL=$REACT_APP_API_URL
+          REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY
+          REACT_APP_LINKEDIN_CLIENT_ID=$REACT_APP_LINKEDIN_CLIENT_ID
+          REACT_APP_STRIPE_KEY=$REACT_APP_STRIPE_KEY
+          EOF
+          npm install
+          npm run build
+          mkdir -p build
+          [ -f "index.html" ] && mv index.html build/ || true
+          [ -d "static" ] && mv static build/ || true
+          [ -f "manifest.json" ] && mv manifest.json build/ || true
+          [ -f "conektto.ico" ] && mv conektto.ico build/ || true
+          [ -f "msclarity.js" ] && mv msclarity.js build/ || true
+
+      # 3. Build Java Codegen
+      - name: Build Java Codegen
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build Java JAR
+        working-directory: ezapi-codegen
+        run: mvn -B clean package -DskipTests
+
+      # 4. Build Python Miner
+      - name: Build Python Miner
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Core Python Dependencies
+        working-directory: ezapi-miner
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install flask flask-cors requests numpy pandas sqlalchemy pymongo psycopg2-binary pyjwt python-decouple
+          pip freeze > requirements_clean.txt
+          rm -f ../python-app.zip
+          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "REQUIREMENTS.txt"
+
+      # 5. Build Node.js Backend
+      - name: Build Node.js Backend
+        working-directory: ezapi-backend
+        run: |
+          npm install
+          # Create production environment file
+          cat > .env.prod << EOF
+          PORT=${{ secrets.NODE_BACKEND_PORT }}
+          MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
+          WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          STRIPE_LIVE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+          CLIENT_ID=${{ secrets.LINKEDIN_CLIENT_ID }}
+          CLIENT_SECRET=${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          MAILGUN_API_KEY=${{ secrets.MAILGUN_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          NODE_ENV=production
+          EOF
+          rm -f ../node-backend.zip
+          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json"
+
+      # 6. Setup SSH and Deploy
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      # 7. Deploy All Services
+      - name: Deploy to EC2
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          DEPLOY_BASE: "/home/ubuntu/ezapi"
+        run: |
+          ssh $EC2_USER@$EC2_HOST "mkdir -p $DEPLOY_BASE/{ui,codegen,miner,backend,scripts,logs}"
+
+          rsync -avz ezapi-ui/build/ $EC2_USER@$EC2_HOST:$DEPLOY_BASE/ui/
+          rsync -avz ezapi-codegen/target/*.jar $EC2_USER@$EC2_HOST:$DEPLOY_BASE/codegen/
+          rsync -avz python-app.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/miner/
+          rsync -avz node-backend.zip $EC2_USER@$EC2_HOST:$DEPLOY_BASE/backend/
+
+      # 8. Setup PM2 and Start All Services
+      - name: Setup PM2 and Start Services
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          DEPLOY_BASE: "/home/ubuntu/ezapi"
+        run: |
+          cat > ecosystem.config.js << 'EOF'
+          module.exports = {
+            apps: [
+              {
+                name: 'java-codegen',
+                cwd: '/home/ubuntu/ezapi/codegen',
+                script: 'java',
+                args: ['-jar', 'java_codgen_api-0.0.1-SNAPSHOT.jar'],
+                env: {
+                  NODE_ENV: 'production'
+                },
+                error_file: '/home/ubuntu/ezapi/logs/java-err.log',
+                out_file: '/home/ubuntu/ezapi/logs/java-out.log',
+                time: true
+              },
+              {
+                name: 'python-miner',
+                cwd: '/home/ubuntu/ezapi/miner',
+                script: 'python3',
+                args: ['app.py'],
+                interpreter: 'none',
+                env: {
+                  NODE_ENV: 'production'
+                },
+                error_file: '/home/ubuntu/ezapi/logs/python-err.log',
+                out_file: '/home/ubuntu/ezapi/logs/python-out.log',
+                time: true
+              },
+              {
+                name: 'node-backend',
+                cwd: '/home/ubuntu/ezapi/backend',
+                script: 'npm',
+                args: ['start'],
+                interpreter: 'none',
+                env: {
+                  NODE_ENV: 'production'
+                },
+                error_file: '/home/ubuntu/ezapi/logs/node-err.log',
+                out_file: '/home/ubuntu/ezapi/logs/node-out.log',
+                time: true
+              },
+              {
+                name: 'react-ui',
+                cwd: '/home/ubuntu/ezapi/ui',
+                script: 'python3',
+                args: ['-m', 'http.server', '8000'],
+                interpreter: 'none',
+                env: {
+                  NODE_ENV: 'production'
+                },
+                error_file: '/home/ubuntu/ezapi/logs/ui-err.log',
+                out_file: '/home/ubuntu/ezapi/logs/ui-out.log',
+                time: true
+              }
+            ]
+          }
+          EOF
+
+          cat > deploy.sh << 'EOF'
+          #!/bin/bash
+          DEPLOY_BASE="/home/ubuntu/ezapi"
+
+          # Setup MongoDB replica set
+          sudo systemctl stop mongod
+          sudo sed -i '/replication:/d' /etc/mongod.conf
+          sudo sed -i '/rep1SetName:/d' /etc/mongod.conf
+          echo "replication:" | sudo tee -a /etc/mongod.conf
+          echo "  rep1SetName: \"rs0\"" | sudo tee -a /etc/mongod.conf
+          sudo systemctl start mongod
+          mongosh --eval "rs.initiate()" --quiet
+
+          # Create Java log directory
+          sudo mkdir -p /var/app/ezapi_java_code_gen/logs/
+          sudo chown ubuntu:ubuntu /var/app/ezapi_java_code_gen/logs/
+
+          # Extract and setup Python app
+          cd $DEPLOY_BASE/miner
+          unzip -o python-app.zip > /dev/null 2>&1
+
+          # Extract and setup Node.js backend
+          cd $DEPLOY_BASE/backend
+          unzip -o node-backend.zip > /dev/null 2>&1
+          npm install --production
+          cp .env.prod .env
+
+          # Install PM2 if not present
+          if ! command -v pm2 &> /dev/null; then
+            curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+            sudo npm install -g pm2
+          fi
+
+          # Install Python dependencies
+          cd $DEPLOY_BASE/miner
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install -r requirements_clean.txt
+          fi
+
+          # Deploy with PM2
+          pm2 delete all || true
+          pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
+          pm2 save
+          echo "PM2 startup command (run manually):"
+          echo "sudo env PATH=$PATH:/usr/bin /usr/local/lib/node_modules/pm2/bin/pm2 startup systemd -u ubuntu --hp /home/ubuntu"
+          EOF
+
+          scp ecosystem.config.js $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
+          scp deploy.sh $EC2_USER@$EC2_HOST:$DEPLOY_BASE/scripts/
+
+          ssh $EC2_USER@$EC2_HOST "chmod +x $DEPLOY_BASE/scripts/deploy.sh"
+          ssh $EC2_USER@$EC2_HOST "cd $DEPLOY_BASE/scripts && ./deploy.sh"
+
+      # 9. Final Verification
+      - name: Final Verification
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "✅ FULL STACK DEPLOYMENT SUCCESSFUL"
+          echo "==================================="
+          echo "All services are running with PM2:"
+          ssh $EC2_USER@$EC2_HOST "pm2 status"
+
+          echo ""
+          echo "🌐 ACCESS YOUR APPLICATION:"
+          echo "React UI:      http://$EC2_HOST:8000"
+          echo "Node.js API:   http://$EC2_HOST:7744"
+          echo "Java API:      http://$EC2_HOST:8080"
+          echo "Python API:    http://$EC2_HOST:5000"
