@@ -15,7 +15,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Build React UI - FIXED EOF INDENTATION
+      # 2. Build React UI
       - name: Build React UI
         working-directory: ezapi-ui
         env:
@@ -26,25 +26,28 @@ jobs:
           REACT_APP_STRIPE_KEY: ${{ secrets.REACT_APP_STRIPE_KEY }}
         run: |
           echo "Creating .env file..."
-          cat > .env << 'EOF'
-REACT_APP_API_URL=$REACT_APP_API_URL
-REACT_APP_AES_ENCRYPTION_KEY=$REACT_APP_AES_ENCRYPTION_KEY
-REACT_APP_LINKEDIN_CLIENT_ID=$REACT_APP_LINKEDIN_CLIENT_ID
-REACT_APP_STRIPE_KEY=$REACT_APP_STRIPE_KEY
+          cat > .env <<EOF
+REACT_APP_API_URL=${REACT_APP_API_URL}
+REACT_APP_AES_ENCRYPTION_KEY=${REACT_APP_AES_ENCRYPTION_KEY}
+REACT_APP_LINKEDIN_CLIENT_ID=${REACT_APP_LINKEDIN_CLIENT_ID}
+REACT_APP_STRIPE_KEY=${REACT_APP_STRIPE_KEY}
 EOF
+
           echo "Installing dependencies..."
           npm install
+
           echo "Building React app..."
           npm run build
           echo "Build completed."
 
-      # 3. Build Java Codegen
-      - name: Build Java Codegen
+      # 3. Setup Java env
+      - name: Setup Java
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
-      
+
+      # 4. Build Java Codegen
       - name: Build Java JAR
         working-directory: ezapi-codegen
         run: |
@@ -52,13 +55,13 @@ EOF
           mvn -B clean package -DskipTests
           echo "Java build completed."
 
-      # 4. Build Python Miner
-      - name: Build Python Miner
+      # 5. Build Python Miner
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      
-      - name: Install Core Python Dependencies
+
+      - name: Build Python Miner
         working-directory: ezapi-miner
         run: |
           echo "Building Python Miner..."
@@ -67,18 +70,20 @@ EOF
           pip install --upgrade pip
           pip install flask flask-cors requests numpy pandas sqlalchemy pymongo psycopg2-binary pyjwt python-decouple
           pip freeze > requirements_clean.txt
+
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*"
           echo "Python package created."
 
-      # 5. Build Node.js Backend
+      # 6. Build Node.js Backend
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
           echo "Building Node.js Backend..."
           npm install
-          # Create production environment file
-          cat > .env.prod << 'EOF'
+
+          echo "Creating production .env file..."
+          cat > .env.prod <<EOF
 PORT=9001
 MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
 WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
@@ -90,56 +95,51 @@ MAILGUN_API_KEY=${{ secrets.MAILGUN_API_KEY }}
 OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
 NODE_ENV=production
 EOF
+
           rm -f ../node-backend.zip
           zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json" "test*" "*.log"
           echo "Node.js package created."
 
-      # 6. Setup SSH for GCP
-      - name: Setup SSH for GCP
+      # 7. Setup SSH
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.GCP_SSH_KEY }}" > ~/.ssh/gcp_key
           chmod 600 ~/.ssh/gcp_key
           ssh-keyscan -H "${{ secrets.GCP_VM_HOST }}" >> ~/.ssh/known_hosts
 
-      # 7. Deploy All Services to /tmp
-      - name: Deploy to GCP VM /tmp
+      # 8. Deploy Files to GCP
+      - name: Deploy to GCP VM
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "Starting deployment to /tmp..."
-          
-          # Create directory structure
+          echo "Creating directory structure on VM..."
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "mkdir -p /tmp/ezapi/{ui,codegen,miner,backend,scripts,logs}"
-          
-          echo "Deploying React UI..."
-          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/build/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
-          
-          echo "Deploying Java Codegen..."
-          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
-          
-          echo "Deploying Python Miner..."
-          rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
-          
-          echo "Deploying Node.js Backend..."
-          rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
-          
-          echo "Deploying environment file..."
-          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-backend/.env.prod $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
-          
-          echo "All files deployed to /tmp"
 
-      # 8. Setup and Start Services in /tmp
-      - name: Setup PM2 and Start Services in /tmp
+          echo "Uploading React UI build..."
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-ui/build/ $GCP_USER@$GCP_HOST:/tmp/ezapi/ui/
+
+          echo "Uploading Java JAR..."
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
+
+          echo "Uploading Python miner..."
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
+
+          echo "Uploading Node backend..."
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
+
+          echo "Uploading environment file..."
+          rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-backend/.env.prod $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
+
+      # 9. Setup PM2 and deploy script
+      - name: Upload PM2 Ecosystem + Deploy Script
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "Creating deployment configuration..."
-          
-          # Create ecosystem config
-          cat > ecosystem.config.js << 'EOF'
+          echo "Generating ecosystem.config.js..."
+          cat > ecosystem.config.js <<EOF
 module.exports = {
   apps: [
     {
@@ -157,9 +157,7 @@ module.exports = {
       script: 'python3',
       args: ['app.py'],
       interpreter: 'none',
-      env: {
-        PORT: '9003'
-      },
+      env: { PORT: '9003' },
       error_file: '/tmp/ezapi/logs/python-err.log',
       out_file: '/tmp/ezapi/logs/python-out.log',
       time: true
@@ -170,9 +168,7 @@ module.exports = {
       script: 'npm',
       args: ['start'],
       interpreter: 'none',
-      env: {
-        PORT: '9001'
-      },
+      env: { PORT: '9001' },
       error_file: '/tmp/ezapi/logs/node-err.log',
       out_file: '/tmp/ezapi/logs/node-out.log',
       time: true
@@ -190,103 +186,67 @@ module.exports = {
   ]
 }
 EOF
-          
-          # Create clean deployment script
-          cat > deploy.sh << 'EOF'
+
+          echo "Generating deploy.sh..."
+          cat > deploy.sh <<EOF
 #!/bin/bash
 set -e
-echo "Deploying EZAPI to /tmp folder..."
 
-# Stop existing services
+echo "Stopping existing PM2 services..."
 pm2 delete java-codegen python-miner node-backend react-ui 2>/dev/null || true
 sleep 2
 
-echo "Setting up Python miner..."
+echo "Extracting Python miner..."
 cd /tmp/ezapi/miner
-unzip -o python-app.zip > /dev/null 2>&1 && echo "Python extracted" || echo "Python extraction completed"
+unzip -o python-app.zip > /dev/null
 
-echo "Setting up Node.js backend..."
+echo "Extracting Node backend..."
 cd /tmp/ezapi/backend
-unzip -o node-backend.zip > /dev/null 2>&1 && echo "Node.js extracted" || echo "Node.js extraction completed"
+unzip -o node-backend.zip > /dev/null
 
 if [ -f "package.json" ]; then
-  echo "Installing Node.js dependencies..."
   npm install --omit=dev --no-audit --no-fund
-  if [ -f ".env.prod" ]; then
-    cp .env.prod .env
-    echo "Environment file configured"
-  else
-    echo "PORT=9001" > .env
-    echo "NODE_ENV=production" >> .env
-    echo "Created basic .env file"
-  fi
+  cp .env.prod .env
 fi
 
-# Install PM2 if not present
-if ! command -v pm2 &> /dev/null; then
+if ! command -v pm2 &>/dev/null; then
   echo "Installing PM2..."
   curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
   sudo apt-get install -y nodejs
   sudo npm install -g pm2
 fi
 
-echo "Installing Python dependencies..."
 cd /tmp/ezapi/miner
 if [ -f "requirements_clean.txt" ]; then
   python3 -m venv venv --clear
   source venv/bin/activate
   pip install -r requirements_clean.txt
-  echo "Python dependencies installed"
 fi
 
-echo "Starting services with PM2..."
+echo "Starting PM2 services..."
 pm2 start /tmp/ezapi/scripts/ecosystem.config.js
 pm2 save
-
-echo "Waiting for services to start..."
-sleep 5
-
-echo "Checking service status..."
-pm2 status
-
-echo "DEPLOYMENT COMPLETED SUCCESSFULLY!"
-echo ""
-echo "ACCESS YOUR APPLICATION:"
-echo "React UI:      http://$(curl -s ifconfig.me):9000"
-echo "Node.js API:   http://$(curl -s ifconfig.me):9001" 
-echo "Java API:      http://$(curl -s ifconfig.me):9002"
-echo "Python API:    http://$(curl -s ifconfig.me):9003"
-echo ""
-echo "Run 'pm2 logs' to check logs"
-echo "Run 'pm2 status' to check status"
 EOF
-          
-          # Transfer files
+
+          echo "Uploading ecosystem + deploy script..."
           scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
-          
-          # Execute deployment
-          echo "Running deployment on GCP VM..."
+
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
 
-      # 9. Final Verification
+      # 10. Final Verification
       - name: Final Verification
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          echo "FINAL DEPLOYMENT VERIFICATION"
-          echo "============================="
-          echo "Service status:"
+          echo "Checking PM2 status..."
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 status"
-          
+
           echo ""
-          echo "PORT MAPPING:"
+          echo "APP URLS:"
           echo "React UI:      http://$GCP_HOST:9000"
-          echo "Node.js API:   http://$GCP_HOST:9001"
-          echo "Java API:      http://$GCP_HOST:9002" 
+          echo "Node API:      http://$GCP_HOST:9001"
+          echo "Java API:      http://$GCP_HOST:9002"
           echo "Python API:    http://$GCP_HOST:9003"
-          
-          echo ""
-          echo "To check logs, run: ssh $GCP_USER@$GCP_HOST 'pm2 logs'"
-          echo "To restart services: ssh $GCP_USER@$GCP_HOST 'pm2 restart all'"
+
