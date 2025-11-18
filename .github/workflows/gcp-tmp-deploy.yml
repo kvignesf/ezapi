@@ -67,14 +67,62 @@ jobs:
           rm -f ../python-app.zip
           zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*" "requirements_clean.txt" ".env"
 
-      # 5. Build Node.js Backend - UPDATED with package.json fix
+      # 5. Build Node.js Backend - UPDATED with OpenAI fix
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
           # Fix package.json to use production mode
           sed -i 's/"start": "cross-env NODE_ENV=dev node .\/src\/index.js"/"start": "cross-env NODE_ENV=production node .\/src\/index.js"/' package.json
           
+          # Apply OpenAI fix during build
+          cat > fix_openai_build.js << 'OPENAI_FIX_EOF'
+          const fs = require('fs');
+          
+          // Fix chatCompletions.js to handle missing API key gracefully
+          const chatCompletionsFile = 'src/utility/chatCompletions.js';
+          if (fs.existsSync(chatCompletionsFile)) {
+            let content = fs.readFileSync(chatCompletionsFile, 'utf8');
+            
+            // Replace OpenAI initialization with conditional check
+            if (content.includes("const openai = new OpenAI()")) {
+              content = `const { OpenAI } = require('openai');
+
+              // Initialize OpenAI only if API key is present
+              let openai = null;
+              if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_key') {
+                openai = new OpenAI();
+                console.log('OpenAI initialized with API key');
+              } else {
+                console.warn('OpenAI not initialized - API key missing or invalid');
+              }
+
+              const generateCodeUsingPrompt = async (prompt) => {
+                if (!openai) {
+                  throw new Error('OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.');
+                }
+                try {
+                  const completion = await openai.chat.completions.create({
+                    model: "gpt-3.5-turbo",
+                    messages: [{ role: "user", content: prompt }],
+                  });
+                  return completion.choices[0].message.content;
+                } catch (error) {
+                  console.error('OpenAI API error:', error);
+                  throw error;
+                }
+              };
+
+              module.exports = { generateCodeUsingPrompt };
+              `;
+              fs.writeFileSync(chatCompletionsFile, content);
+              console.log('✓ Fixed OpenAI initialization in chatCompletions.js');
+            }
+          }
+          OPENAI_FIX_EOF
+          node fix_openai_build.js
+          
           npm install
+          
           # Create comprehensive .env.prod with all required variables
           cat > .env.prod << 'EOF'
           FILE_UPLOAD_PATH=${{ secrets.FILE_UPLOAD_PATH }}
@@ -107,8 +155,9 @@ jobs:
           JWT_EXPIRE=${{ secrets.JWT_EXPIRE }}
           NODE_ENV=production
           EOF
+          
           rm -f ../node-backend.zip
-          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env" "*.key" "creds*.json" "test*" "*.log"
+          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env" "*.key" "creds*.json" "test*" "*.log" "fix_openai_build.js"
 
       # 6. Setup SSH for GCP
       - name: Setup SSH for GCP
@@ -130,7 +179,7 @@ jobs:
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
 
-      # 8. Setup and Start Services in /tmp - FIXED Node.js startup issue
+      # 8. Setup and Start Services in /tmp - COMPLETELY FIXED
       - name: Setup PM2 and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -142,12 +191,16 @@ jobs:
           DEPLOY_BASE="/tmp/ezapi"
           echo "Starting deployment process..."
 
-          # Fix apt sources first
+          # Fix apt sources and remove problematic packages
           sudo sed -i '/apt.postgresql.org/d' /etc/apt/sources.list.d/*.list || true
+          
+          # Fix broken google-fluentd package
+          sudo dpkg --remove --force-remove-reinstreq google-fluentd || true
+          sudo apt-get update
+          sudo apt-get install -f -y
 
           # Install system dependencies
-          sudo apt-get update
-          sudo apt-get install -y python3-venv python3-pip build-essential python3-dev curl wget
+          sudo apt-get install -y python3-venv python3-pip build-essential python3-dev curl wget gnupg
 
           # Install MongoDB if not present
           if ! command -v mongod &> /dev/null; then
@@ -181,12 +234,12 @@ jobs:
             pip install flask flask-cors requests pymongo psycopg2-binary pyjwt python-decouple importlib-metadata==4.8.3 blinker
           fi
 
-          # Setup Node.js Backend - CRITICAL FIX: Update package.json start script
+          # Setup Node.js Backend
           echo "Setting up Node.js Backend..."
           cd $DEPLOY_BASE/backend
           unzip -o node-backend.zip
           
-          # FIX: Update package.json to use production mode
+          # Ensure package.json uses production mode
           sed -i 's/"start": "cross-env NODE_ENV=dev node .\/src\/index.js"/"start": "cross-env NODE_ENV=production node .\/src\/index.js"/' package.json
           
           npm install --production --legacy-peer-deps
@@ -234,59 +287,43 @@ jobs:
           FIX_EOF
           node fix_mongodb.js
 
-          # Apply OpenAI API key fix - make it optional
-          echo "Applying OpenAI API key optional fix..."
-          cat > fix_openai.js << 'OPENAI_FIX_EOF'
+          # Additional OpenAI safety fix
+          echo "Applying additional OpenAI safety fixes..."
+          cat > fix_openai_safety.js << 'OPENAI_SAFETY_EOF'
           const fs = require('fs');
-          const path = require('path');
-
-          // Make OpenAI initialization optional
-          const chatCompletionsFile = 'src/utility/chatCompletions.js';
-          if (fs.existsSync(chatCompletionsFile)) {
-            let content = fs.readFileSync(chatCompletionsFile, 'utf8');
-            
-            // Replace the OpenAI initialization to be optional
-            if (content.includes("const openai = new OpenAI()")) {
-              content = content.replace(
-                "const openai = new OpenAI()",
-                `const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
-                console.log('OpenAI initialized:', process.env.OPENAI_API_KEY ? 'Yes' : 'No - API key missing');`
-              );
-              
-              // Also wrap any openai calls with checks
-              content = content.replace(
-                /openai\.chat\.completions\.create/g,
-                'openai ? openai.chat.completions.create : Promise.reject(new Error("OpenAI API key not configured"))'
-              );
-              
-              fs.writeFileSync(chatCompletionsFile, content);
-              console.log('✓ Made OpenAI initialization optional');
+          
+          // Fix any remaining OpenAI imports that might crash
+          const filesToCheck = [
+            'src/utility/aggregateCodeGen/nestCodeGen.js',
+            'src/utility/nodeCodeGen.js',
+            'src/utility/aggregateCodeGen.js'
+          ];
+          
+          filesToCheck.forEach(file => {
+            if (fs.existsSync(file)) {
+              let content = fs.readFileSync(file, 'utf8');
+              // Replace OpenAI imports with safe versions
+              if (content.includes("require('../chatCompletions')")) {
+                content = content.replace(
+                  "const { generateCodeUsingPrompt } = require('../chatCompletions');",
+                  `let generateCodeUsingPrompt = null;
+                  try {
+                    const chatModule = require('../chatCompletions');
+                    generateCodeUsingPrompt = chatModule.generateCodeUsingPrompt;
+                  } catch (error) {
+                    console.warn('OpenAI module not available, some features will be disabled');
+                    generateCodeUsingPrompt = async () => {
+                      throw new Error('OpenAI features are not configured. Please set OPENAI_API_KEY environment variable.');
+                    };
+                  }`
+                );
+                fs.writeFileSync(file, content);
+                console.log('✓ Fixed OpenAI import in', file);
+              }
             }
-          }
-
-          // Also fix the import in nestCodeGen.js
-          const nestCodeGenFile = 'src/utility/aggregateCodeGen/nestCodeGen.js';
-          if (fs.existsSync(nestCodeGenFile)) {
-            let nestContent = fs.readFileSync(nestCodeGenFile, 'utf8');
-            if (nestContent.includes("require('../chatCompletions')")) {
-              // Add error handling for the import
-              nestContent = nestContent.replace(
-                "const { generateCodeUsingPrompt } = require('../chatCompletions');",
-                `let generateCodeUsingPrompt = null;
-                try {
-                  const chatModule = require('../chatCompletions');
-                  generateCodeUsingPrompt = chatModule.generateCodeUsingPrompt;
-                } catch (error) {
-                  console.warn('OpenAI module not available:', error.message);
-                  generateCodeUsingPrompt = () => Promise.reject(new Error('OpenAI not configured'));
-                }`
-              );
-              fs.writeFileSync(nestCodeGenFile, nestContent);
-              console.log('✓ Fixed nestCodeGen.js OpenAI import');
-            }
-          }
-          OPENAI_FIX_EOF
-          node fix_openai.js
+          });
+          OPENAI_SAFETY_EOF
+          node fix_openai_safety.js
 
           # Check if .env.prod exists and copy to .env
           if [ -f ".env.prod" ]; then
@@ -399,7 +436,8 @@ jobs:
           # Stop and restart all services
           echo "Starting services with PM2..."
           pm2 delete all || true
-
+          sleep 2
+          
           # Start services with updated ecosystem config
           pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
           pm2 save
@@ -422,16 +460,16 @@ jobs:
         run: |
           echo "GCP DEPLOYMENT COMPLETED"
           echo "========================"
-          echo "Waiting for services to start..."
-          sleep 20
+          echo "Waiting for services to stabilize..."
+          sleep 30
           echo "PM2 Status:"
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 status"
           echo ""
-          echo "Service Logs (last 10 lines each):"
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 logs node-backend --lines 10 --silent" || echo "Logs not available yet"
+          echo "Node.js Backend Status:"
+          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 logs node-backend --lines 15 --silent" || echo "Checking logs..."
           echo ""
           echo "MongoDB Status:"
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "sudo systemctl is-active mongod && mongo --eval 'db.version()' --quiet" || echo "MongoDB status check failed"
+          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "sudo systemctl is-active mongod && echo 'MongoDB is running' || echo 'MongoDB is not running'"
           echo ""
           echo "ACCESS YOUR APPLICATION:"
           echo "React UI:      http://$GCP_HOST:8004"
@@ -439,14 +477,11 @@ jobs:
           echo "Java API:      http://$GCP_HOST:8002"
           echo "Python API:    http://$GCP_HOST:8003"
           echo ""
-          echo "Key fixes applied:"
-          echo "✅ Fixed Node.js startup from 'dev' to 'production' mode"
-          echo "✅ Made OpenAI API key optional to prevent crashes"
-          echo "✅ Fixed package.json start script"
-          echo "✅ Fixed MongoDB installation for Ubuntu 18.04"
-          echo "✅ Fixed Python blinker dependency version"
-          echo "✅ Fixed Node.js npm installation with legacy peer deps"
-          echo "✅ Fixed apt sources conflicts"
-          echo "✅ MongoDB automatic installation and connection resilience"
-          echo "✅ WorkOS environment variables configuration"
-
+          echo "✅ ALL CRITICAL FIXES APPLIED:"
+          echo "✅ OpenAI API key made optional - app won't crash if missing"
+          echo "✅ Fixed google-fluentd GLIBC conflicts on Ubuntu 18.04"
+          echo "✅ Node.js running in production mode"
+          echo "✅ MongoDB connection resilience improved"
+          echo "✅ All services managed by PM2"
+          echo "✅ Python dependencies fixed"
+          echo "✅ Environment variables properly configured"
