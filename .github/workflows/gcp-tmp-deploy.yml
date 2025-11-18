@@ -86,7 +86,6 @@ jobs:
             // Replace OpenAI initialization with conditional check
             if (content.includes("const openai = new OpenAI()")) {
               content = `const { OpenAI } = require('openai');
-
               // Initialize OpenAI only if API key is present
               let openai = null;
               if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_key') {
@@ -95,7 +94,6 @@ jobs:
               } else {
                 console.warn('OpenAI not initialized - API key missing or invalid');
               }
-
               const generateCodeUsingPrompt = async (prompt) => {
                 if (!openai) {
                   throw new Error('OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.');
@@ -111,7 +109,6 @@ jobs:
                   throw error;
                 }
               };
-
               module.exports = { generateCodeUsingPrompt };
               `;
               fs.writeFileSync(chatCompletionsFile, content);
@@ -179,18 +176,18 @@ jobs:
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
 
-      # 8. Setup and Start Services in /tmp - COMPLETELY FIXED
+      # 8. Setup and Start Services in /tmp - UPDATED with React UI on port 8011
       - name: Setup PM2 and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          # Create the corrected deploy script
+          # Create the corrected deploy script with React UI on port 8011
           cat > deploy.sh << 'DEPLOY_EOF'
           #!/bin/bash
           DEPLOY_BASE="/tmp/ezapi"
           echo "Starting deployment process..."
-
+          
           # Fix apt sources and remove problematic packages
           sudo sed -i '/apt.postgresql.org/d' /etc/apt/sources.list.d/*.list || true
           
@@ -198,10 +195,10 @@ jobs:
           sudo dpkg --remove --force-remove-reinstreq google-fluentd || true
           sudo apt-get update
           sudo apt-get install -f -y
-
+          
           # Install system dependencies
           sudo apt-get install -y python3-venv python3-pip build-essential python3-dev curl wget gnupg
-
+          
           # Install MongoDB if not present
           if ! command -v mongod &> /dev/null; then
             echo "Installing MongoDB..."
@@ -223,7 +220,7 @@ jobs:
           python3 -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
-
+          
           # Fix blinker version issue
           if [ -f "requirements_compatible.txt" ]; then
             sed -i 's/blinker==1.9.0/blinker>=1.6.0/' requirements_compatible.txt
@@ -372,7 +369,7 @@ jobs:
             sudo npm install -g pm2
           fi
 
-          # Create ecosystem config
+          # Create ecosystem config with React UI on port 8011
           cat > $DEPLOY_BASE/scripts/ecosystem.config.js << 'ECOSYSTEM_EOF'
           module.exports = {
             apps: [
@@ -423,8 +420,11 @@ jobs:
                 name: 'react-ui',
                 cwd: '/tmp/ezapi/ui',
                 script: 'python3',
-                args: ['-m', 'http.server', '8004'],
-                env: { NODE_ENV: 'production' },
+                args: ['-m', 'http.server', '8011'],
+                env: { 
+                  NODE_ENV: 'production',
+                  PORT: '8011'
+                },
                 error_file: '/tmp/ezapi/logs/ui-err.log',
                 out_file: '/tmp/ezapi/logs/ui-out.log',
                 time: true
@@ -442,7 +442,6 @@ jobs:
           pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
           pm2 save
           sudo pm2 startup || true
-
           echo "Deployment completed successfully!"
           DEPLOY_EOF
 
@@ -472,12 +471,13 @@ jobs:
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "sudo systemctl is-active mongod && echo 'MongoDB is running' || echo 'MongoDB is not running'"
           echo ""
           echo "ACCESS YOUR APPLICATION:"
-          echo "React UI:      http://$GCP_HOST:8004"
+          echo "React UI:      http://$GCP_HOST:8011"
           echo "Node.js API:   http://$GCP_HOST:7744"
           echo "Java API:      http://$GCP_HOST:8002"
           echo "Python API:    http://$GCP_HOST:8003"
           echo ""
           echo "✅ ALL CRITICAL FIXES APPLIED:"
+          echo "✅ React UI running on port 8011"
           echo "✅ OpenAI API key made optional - app won't crash if missing"
           echo "✅ Fixed google-fluentd GLIBC conflicts on Ubuntu 18.04"
           echo "✅ Node.js running in production mode"
