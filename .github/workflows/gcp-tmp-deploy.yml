@@ -73,37 +73,37 @@ jobs:
         run: |
           npm install
           # Create comprehensive .env.prod with all required variables
-          cat > .env.prod << EOF
-FILE_UPLOAD_PATH=${{ secrets.FILE_UPLOAD_PATH }}
-DUMP_PATH=${{ secrets.DUMP_PATH }}
-PORT=${{ secrets.NODE_BACKEND_PORT }}
-AI_SERVER_URL=${{ secrets.AI_SERVER_URL }}
-APIOPS_MODEL_URL=${{ secrets.APIOPS_MODEL_URL }}
-MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
-REDIRECT_URI=${{ secrets.REDIRECT_URI }}
-CLIENT_ID=${{ secrets.LINKEDIN_CLIENT_ID }}
-CLIENT_SECRET=${{ secrets.LINKEDIN_CLIENT_SECRET }}
-STRIPE_LIVE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
-STRIPE_PAYMENT_WEBHOOK=${{ secrets.STRIPE_PAYMENT_WEBHOOK }}
-MAILGUN_DOMAIN=${{ secrets.MAILGUN_DOMAIN }}
-MAILGUN_API_KEY=${{ secrets.MAILGUN_API_KEY }}
-FREEPROJECTS_LIMIT=${{ secrets.FREEPROJECTS_LIMIT }}
-MEMBERS_LIMIT=${{ secrets.MEMBERS_LIMIT }}
-PUBLISH_LIMIT=${{ secrets.PUBLISH_LIMIT }}
-SHAREDINBOX_EMAILID=${{ secrets.SHAREDINBOX_EMAILID }}
-SHAREDINBOX_PASSWORD=${{ secrets.SHAREDINBOX_PASSWORD }}
-O365_SMTP_SERVER=${{ secrets.O365_SMTP_SERVER }}
-O365_SMTP_PORT=${{ secrets.O365_SMTP_PORT }}
-GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
-EZAPI_BUCKET=${{ secrets.EZAPI_BUCKET }}
-OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
-WORKOS_CLIENT_ID=${{ secrets.WORKOS_CLIENT_ID }}
-WORKOS_REDIRECT_URI=${{ secrets.WORKOS_REDIRECT_URI }}
-JWT_SECRET=${{ secrets.JWT_SECRET }}
-JWT_EXPIRE=${{ secrets.JWT_EXPIRE }}
-NODE_ENV=production
-EOF
+          cat > .env.prod << 'EOF'
+          FILE_UPLOAD_PATH=${{ secrets.FILE_UPLOAD_PATH }}
+          DUMP_PATH=${{ secrets.DUMP_PATH }}
+          PORT=${{ secrets.NODE_BACKEND_PORT }}
+          AI_SERVER_URL=${{ secrets.AI_SERVER_URL }}
+          APIOPS_MODEL_URL=${{ secrets.APIOPS_MODEL_URL }}
+          MONGO_CONNECTION=${{ secrets.MONGO_CONNECTION }}
+          REDIRECT_URI=${{ secrets.REDIRECT_URI }}
+          CLIENT_ID=${{ secrets.LINKEDIN_CLIENT_ID }}
+          CLIENT_SECRET=${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          STRIPE_LIVE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PAYMENT_WEBHOOK=${{ secrets.STRIPE_PAYMENT_WEBHOOK }}
+          MAILGUN_DOMAIN=${{ secrets.MAILGUN_DOMAIN }}
+          MAILGUN_API_KEY=${{ secrets.MAILGUN_API_KEY }}
+          FREEPROJECTS_LIMIT=${{ secrets.FREEPROJECTS_LIMIT }}
+          MEMBERS_LIMIT=${{ secrets.MEMBERS_LIMIT }}
+          PUBLISH_LIMIT=${{ secrets.PUBLISH_LIMIT }}
+          SHAREDINBOX_EMAILID=${{ secrets.SHAREDINBOX_EMAILID }}
+          SHAREDINBOX_PASSWORD=${{ secrets.SHAREDINBOX_PASSWORD }}
+          O365_SMTP_SERVER=${{ secrets.O365_SMTP_SERVER }}
+          O365_SMTP_PORT=${{ secrets.O365_SMTP_PORT }}
+          GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+          EZAPI_BUCKET=${{ secrets.EZAPI_BUCKET }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
+          WORKOS_CLIENT_ID=${{ secrets.WORKOS_CLIENT_ID }}
+          WORKOS_REDIRECT_URI=${{ secrets.WORKOS_REDIRECT_URI }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          JWT_EXPIRE=${{ secrets.JWT_EXPIRE }}
+          NODE_ENV=production
+          EOF
           rm -f ../node-backend.zip
           zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env" "*.key" "creds*.json" "test*" "*.log"
 
@@ -133,16 +133,16 @@ EOF
           GCP_USER: ${{ secrets.GCP_VM_USER }}
           GCP_HOST: ${{ secrets.GCP_VM_HOST }}
         run: |
-          cat > deploy.sh << 'EOF'
+          cat > deploy.sh << 'DEPLOY_EOF'
           #!/bin/bash
           DEPLOY_BASE="/tmp/ezapi"
-          
+
           echo "Starting deployment process..."
-          
+
           # Install system dependencies
           sudo apt-get update
           sudo apt-get install -y python3-venv python3-pip build-essential python3-dev
-          
+
           # Install MongoDB if not present
           if ! command -v mongod &> /dev/null; then
             echo "Installing MongoDB..."
@@ -153,7 +153,7 @@ EOF
             echo "MongoDB already installed, ensuring it's running..."
             sudo systemctl start mongodb || true
           fi
-          
+
           # Setup Python Miner
           echo "Setting up Python Miner..."
           cd $DEPLOY_BASE/miner
@@ -168,24 +168,23 @@ EOF
           else
             pip install flask flask-cors requests pymongo psycopg2-binary pyjwt python-decouple importlib-metadata==4.8.3
           fi
-          
+
           # Setup Node.js Backend
           echo "Setting up Node.js Backend..."
           cd $DEPLOY_BASE/backend
           unzip -o node-backend.zip
           npm install --production
-          
+
           # Apply MongoDB connection fix
           echo "Applying MongoDB connection resilience fix..."
-          cat > fix_mongodb.js << 'FIXEOF'
+          cat > fix_mongodb.js << 'FIX_EOF'
           const fs = require('fs');
-          
+
           // Fix the mongoose connection to be more resilient
           const dbFile = 'src/db/mongoose.js';
           let dbContent = fs.readFileSync(dbFile, 'utf8');
-          
-          const newDbContent = \`const mongoose = require('mongoose');
 
+          const newDbContent = `const mongoose = require('mongoose');
           const dbConnect = async () => {
             try {
               const conn = await mongoose.connect(process.env.MONGO_CONNECTION, {
@@ -202,68 +201,66 @@ EOF
               return null;
             }
           };
-
           module.exports = dbConnect;
-          \`;
-          
+          `;
+
           fs.writeFileSync(dbFile, newDbContent);
           console.log('✓ Updated MongoDB connection to be more resilient');
-
           // Update index.js to handle DB connection gracefully
           const indexFile = 'src/index.js';
           let indexContent = fs.readFileSync(indexFile, 'utf8');
-          
+
           if (indexContent.includes('dbConnect();')) {
             indexContent = indexContent.replace(
               'dbConnect();',
-              'dbConnect().then(() => {\\n  console.log("Database initialization attempted");\\n}).catch(err => {\\n  console.warn("Database connection warning:", err.message);\\n});'
+              'dbConnect().then(() => {\n  console.log("Database initialization attempted");\n}).catch(err => {\n  console.warn("Database connection warning:", err.message);\n});'
             );
             fs.writeFileSync(indexFile, indexContent);
             console.log('✓ Updated index.js to handle DB connection gracefully');
           }
-          FIXEOF
-          
+          FIX_EOF
+
           node fix_mongodb.js
-          
+
           # Check if .env.prod exists and copy to .env
           if [ -f ".env.prod" ]; then
             cp .env.prod .env
             echo "Using .env.prod for configuration"
           else
             echo "WARNING: .env.prod not found, creating basic .env"
-            cat > .env << ENVEOF
-FILE_UPLOAD_PATH=uploads/
-DUMP_PATH=dumps/
-PORT=7744
-AI_SERVER_URL=http://localhost:8003
-APIOPS_MODEL_URL=http://localhost:8003/apiops_model
-MONGO_CONNECTION=mongodb://localhost:27017/ezapi-db
-REDIRECT_URI=http://localhost:7744/auth/linkedin/callback
-CLIENT_ID=${{ secrets.LINKEDIN_CLIENT_ID }}
-CLIENT_SECRET=${{ secrets.LINKEDIN_CLIENT_SECRET }}
-STRIPE_LIVE_SECRET_KEY=your_stripe_secret_key
-STRIPE_PAYMENT_WEBHOOK=your_webhook_secret
-MAILGUN_DOMAIN=your_mailgun_domain
-MAILGUN_API_KEY=your_mailgun_key
-FREEPROJECTS_LIMIT=999
-MEMBERS_LIMIT=6
-PUBLISH_LIMIT=11
-SHAREDINBOX_EMAILID=engage@ezapi.ai
-SHAREDINBOX_PASSWORD=your_inbox_pw
-O365_SMTP_SERVER=smtp.office365.com
-O365_SMTP_PORT=587
-GOOGLE_APPLICATION_CREDENTIALS=/path/to/creds.json
-EZAPI_BUCKET=your_bucket_name
-OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
-WORKOS_CLIENT_ID=${{ secrets.WORKOS_CLIENT_ID }}
-WORKOS_REDIRECT_URI=${{ secrets.WORKOS_REDIRECT_URI }}
-JWT_SECRET=${{ secrets.JWT_SECRET }}
-JWT_EXPIRE=30d
-NODE_ENV=production
-ENVEOF
+            cat > .env << ENV_EOF
+            FILE_UPLOAD_PATH=uploads/
+            DUMP_PATH=dumps/
+            PORT=7744
+            AI_SERVER_URL=http://localhost:8003
+            APIOPS_MODEL_URL=http://localhost:8003/apiops_model
+            MONGO_CONNECTION=mongodb://localhost:27017/ezapi-db
+            REDIRECT_URI=http://localhost:7744/auth/linkedin/callback
+            CLIENT_ID=${{ secrets.LINKEDIN_CLIENT_ID }}
+            CLIENT_SECRET=${{ secrets.LINKEDIN_CLIENT_SECRET }}
+            STRIPE_LIVE_SECRET_KEY=your_stripe_secret_key
+            STRIPE_PAYMENT_WEBHOOK=your_webhook_secret
+            MAILGUN_DOMAIN=your_mailgun_domain
+            MAILGUN_API_KEY=your_mailgun_key
+            FREEPROJECTS_LIMIT=999
+            MEMBERS_LIMIT=6
+            PUBLISH_LIMIT=11
+            SHAREDINBOX_EMAILID=engage@ezapi.ai
+            SHAREDINBOX_PASSWORD=your_inbox_pw
+            O365_SMTP_SERVER=smtp.office365.com
+            O365_SMTP_PORT=587
+            GOOGLE_APPLICATION_CREDENTIALS=/path/to/creds.json
+            EZAPI_BUCKET=your_bucket_name
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            WORKOS_API_KEY=${{ secrets.WORKOS_API_KEY }}
+            WORKOS_CLIENT_ID=${{ secrets.WORKOS_CLIENT_ID }}
+            WORKOS_REDIRECT_URI=${{ secrets.WORKOS_REDIRECT_URI }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            JWT_EXPIRE=30d
+            NODE_ENV=production
+            ENV_EOF
           fi
-          
+
           # Install PM2 if not present
           if ! command -v pm2 &> /dev/null; then
             echo "Installing PM2..."
@@ -271,20 +268,20 @@ ENVEOF
             sudo apt-get install -y nodejs
             sudo npm install -g pm2
           fi
-          
+
           # Stop and restart all services
           echo "Starting services with PM2..."
           pm2 delete all || true
-          
+
           # Start services with updated ecosystem config
           pm2 start /tmp/ezapi/scripts/ecosystem.config.js
           pm2 save
           pm2 startup
-          
+
           echo "Deployment completed successfully!"
-          EOF
-          
-          cat > ecosystem.config.js << 'EOF'
+          DEPLOY_EOF
+
+          cat > ecosystem.config.js << 'ECOSYSTEM_EOF'
           module.exports = {
             apps: [
               {
@@ -328,7 +325,7 @@ ENVEOF
                 error_file: '/tmp/ezapi/logs/node-err.log',
                 out_file: '/tmp/ezapi/logs/node-out.log',
                 time: true,
-                restart_delay: 5000  # Give more time for MongoDB connection
+                restart_delay: 5000
               },
               {
                 name: 'react-ui',
@@ -342,8 +339,8 @@ ENVEOF
               }
             ]
           }
-          EOF
-          
+          ECOSYSTEM_EOF
+
           scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
@@ -378,3 +375,4 @@ ENVEOF
           echo "✅ WorkOS environment variables configuration"
           echo "✅ PM2 ecosystem configuration with proper ports"
           echo "✅ Node.js backend MongoDB connection handling"
+
