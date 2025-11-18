@@ -33,6 +33,7 @@ jobs:
           EOF
           npm install
           npm run build
+
       # 3. Build Java Codegen
       - name: Build Java Codegen
         uses: actions/setup-java@v3
@@ -44,7 +45,7 @@ jobs:
         working-directory: ezapi-codegen
         run: mvn -B clean package -DskipTests
 
-      # 4. Build Python Miner
+      # 4. Build Python Miner - UPDATED with importlib-metadata
       - name: Build Python Miner
         uses: actions/setup-python@v4
         with:
@@ -61,10 +62,13 @@ jobs:
           pip install flask==2.3.3 flask-cors==4.0.0 requests==2.31.0 
           pip install numpy==1.24.3 pandas==2.0.3 sqlalchemy==2.0.23
           pip install pymongo==4.6.1 psycopg2-binary==2.9.7 pyjwt==2.8.0 python-decouple==3.8
+          pip install importlib-metadata==4.8.3  # Fix for importlib issue
           pip freeze | grep -v 'pkg-resources' > requirements_compatible.txt
           rm -f ../python-app.zip
-          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*" "requirements_clean.txt"
-      # 5. Build Node.js Backend - UPDATED: All variables from secrets
+          # Include .env.prod but exclude other env files
+          zip -r ../python-app.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.log" "test*" "requirements_clean.txt" ".env"
+
+      # 5. Build Node.js Backend - UPDATED: Fix .env.prod inclusion
       - name: Build Node.js Backend
         working-directory: ezapi-backend
         run: |
@@ -99,7 +103,9 @@ jobs:
           NODE_ENV=production
           EOF
           rm -f ../node-backend.zip
-          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env*" "*.key" "creds*.json" "test*" "*.log"
+          # FIX: Include .env.prod but exclude other .env files
+          zip -r ../node-backend.zip . -x "*.git*" "node_modules/*" "__pycache__/*" ".env" "*.key" "creds*.json" "test*" "*.log"
+
       # 6. Setup SSH for GCP
       - name: Setup SSH for GCP
         run: |
@@ -107,6 +113,7 @@ jobs:
           echo "${{ secrets.GCP_SSH_KEY }}" > ~/.ssh/gcp_key
           chmod 600 ~/.ssh/gcp_key
           ssh-keyscan -H "${{ secrets.GCP_VM_HOST }}" >> ~/.ssh/known_hosts
+
       # 7. Deploy All Services to /tmp
       - name: Deploy to GCP VM /tmp
         env:
@@ -118,7 +125,8 @@ jobs:
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" ezapi-codegen/target/*.jar $GCP_USER@$GCP_HOST:/tmp/ezapi/codegen/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" python-app.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/miner/
           rsync -avz -e "ssh -i ~/.ssh/gcp_key" node-backend.zip $GCP_USER@$GCP_HOST:/tmp/ezapi/backend/
-      # 8. Setup and Start Services in /tmp
+
+      # 8. Setup and Start Services in /tmp - UPDATED ecosystem config
       - name: Setup PM2 and Start Services in /tmp
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -127,8 +135,12 @@ jobs:
           cat > deploy.sh << 'EOF'
           #!/bin/bash
           DEPLOY_BASE="/tmp/ezapi"
+          
+          # Install system dependencies
           sudo apt-get update
           sudo apt-get install -y python3-venv python3-pip build-essential python3-dev
+          
+          # Setup Python Miner
           cd $DEPLOY_BASE/miner
           unzip -o python-app.zip
           python3 -m venv venv
@@ -139,26 +151,38 @@ jobs:
           elif [ -f "requirements_clean.txt" ]; then
             pip install -r requirements_clean.txt
           else
-            pip install flask flask-cors requests pymongo psycopg2-binary pyjwt python-decouple
+            pip install flask flask-cors requests pymongo psycopg2-binary pyjwt python-decouple importlib-metadata==4.8.3
           fi
+          
+          # Setup Node.js Backend
           cd $DEPLOY_BASE/backend
           unzip -o node-backend.zip
           npm install --production
+          
+          # Check if .env.prod exists and copy to .env
           if [ -f ".env.prod" ]; then
             cp .env.prod .env
+            echo "Using .env.prod for configuration"
           else
+            echo "WARNING: .env.prod not found, creating basic .env"
             echo "PORT=8001" > .env
             echo "NODE_ENV=production" >> .env
+            echo "Please update .env with all required environment variables"
           fi
+          
+          # Install PM2 if not present
           if ! command -v pm2 &> /dev/null; then
             curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
             sudo apt-get install -y nodejs
             sudo npm install -g pm2
           fi
+          
+          # Stop and restart all services
           pm2 delete all || true
           pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
           pm2 save
           EOF
+
           cat > ecosystem.config.js << 'EOF'
           module.exports = {
             apps: [
@@ -179,7 +203,7 @@ jobs:
                 args: ['app.py'],
                 env: { 
                   NODE_ENV: 'production',
-                  FLASK_ENV: 'production',
+                  FLASK_DEBUG: '0',  // Use FLASK_DEBUG instead of FLASK_ENV
                   PORT: 8003
                 },
                 error_file: '/tmp/ezapi/logs/python-err.log',
@@ -209,9 +233,11 @@ jobs:
             ]
           }
           EOF
+
           scp -i ~/.ssh/gcp_key ecosystem.config.js $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "chmod +x /tmp/ezapi/scripts/deploy.sh && cd /tmp/ezapi/scripts && ./deploy.sh"
+
       # 9. Final Verification
       - name: Final Verification
         env:
@@ -228,4 +254,3 @@ jobs:
           echo "Node.js API:   http://$GCP_HOST:8001"
           echo "Java API:      http://$GCP_HOST:8002"
           echo "Python API:    http://$GCP_HOST:8003"
- 
