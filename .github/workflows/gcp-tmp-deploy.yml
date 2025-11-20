@@ -59,7 +59,7 @@ jobs:
           sudo apt-get install -y build-essential python3-dev
           pip install flask==2.3.3 flask-cors==4.0.0 requests==2.31.0 numpy==1.24.3 pandas==2.0.3
           pip install pymongo==4.6.1 psycopg2-binary==2.9.7 pyjwt==2.8.0 python-decouple==3.8
-          pip install importlib-metadata==4.8.3 blinker>=1.6.0
+          pip install importlib-metadata==4.8.3 blinker
           pip freeze | grep -v 'pkg-resources' > requirements_compatible.txt
 
           # Create proper Python app with correct port
@@ -155,7 +155,7 @@ jobs:
           # Fix permissions after file transfer
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "sudo chown -R $GCP_USER:$GCP_USER /tmp/ezapi && sudo chmod -R 755 /tmp/ezapi"
 
-      # 8. Setup and Start Services with Integrated Fixes
+      # 8. Setup and Start Services with Critical Fixes
       - name: Setup and Start Services
         env:
           GCP_USER: ${{ secrets.GCP_VM_USER }}
@@ -167,10 +167,15 @@ jobs:
 
           echo "🔧 Starting deployment process for user: $(whoami)"
 
+          # Fix system package issues first
+          echo "🔧 Fixing system package issues..."
+          sudo dpkg --configure -a || true
+          sudo apt-get remove -y google-fluentd google-fluentd-catch-all-config || true
+          sudo rm -f /etc/apt/sources.list.d/google-cloud-logging.list || true
+          sudo apt-get update
+          sudo apt-get install -f -y
+
           # System setup
-          sudo sed -i '/apt.postgresql.org/d' /etc/apt/sources.list.d/*.list || true
-          sudo dpkg --remove --force-remove-reinstreq google-fluentd || true
-          sudo apt-get update && sudo apt-get install -f -y
           sudo apt-get install -y python3-venv python3-pip build-essential python3-dev curl wget gnupg
 
           # Install MongoDB if missing
@@ -183,15 +188,29 @@ jobs:
             sudo systemctl start mongod || true
           fi
 
-          # Ensure proper permissions
+          # Configure MongoDB for standalone (fix change stream error)
+          echo "🔧 Configuring MongoDB for standalone mode..."
+          sudo mkdir -p /var/lib/mongodb
+          sudo chown -R mongodb:mongodb /var/lib/mongodb
+          sudo systemctl restart mongod || true
+
+          # Ensure proper permissions for deployment
           sudo chown -R $(whoami):$(whoami) $DEPLOY_BASE
           sudo chmod -R 755 $DEPLOY_BASE
+
+          # Fix Java log directory permissions
+          echo "🔧 Fixing Java log directory permissions..."
+          sudo mkdir -p /var/app/ezapi_java_code_gen/logs
+          sudo chown -R $(whoami):$(whoami) /var/app/ezapi_java_code_gen
+          sudo chmod -R 755 /var/app/ezapi_java_code_gen
 
           # Setup Python Miner
           echo "🔧 Setting up Python Miner..."
           cd $DEPLOY_BASE/miner && unzip -o python-app.zip
           python3 -m venv venv && source venv/bin/activate
           pip install --upgrade pip
+          # Fix blinker version issue
+          pip install 'blinker>=1.6.0' --force-reinstall
           [ -f "requirements_compatible.txt" ] && pip install -r requirements_compatible.txt || pip install flask flask-cors requests pymongo psycopg2-binary pyjwt python-decouple
 
           # Setup Node.js Backend
@@ -218,7 +237,7 @@ jobs:
           sudo chown -R $(whoami):$(whoami) /tmp/ezapi/logs
           sudo chmod -R 755 /tmp/ezapi/logs
 
-          # Create PM2 ecosystem with ABSOLUTE PATHS (integrated fix)
+          # Create PM2 ecosystem with ABSOLUTE PATHS and fixes
           echo "🔧 Creating PM2 ecosystem configuration..."
           cat > $DEPLOY_BASE/scripts/ecosystem.config.js << 'ECOSYSTEM_EOF'
           module.exports = {
@@ -228,6 +247,10 @@ jobs:
                 cwd: '/tmp/ezapi/codegen',
                 script: 'java',
                 args: ['-jar', 'java_codgen_api-0.0.1-SNAPSHOT.jar', '--server.port=8002'],
+                env: {
+                  NODE_ENV: 'production',
+                  JAVA_OPTS: '-Dlogging.file.path=/tmp/ezapi/logs'
+                },
                 error_file: '/tmp/ezapi/logs/java-err.log',
                 out_file: '/tmp/ezapi/logs/java-out.log',
                 time: true
@@ -252,7 +275,8 @@ jobs:
                 args: ['start'],
                 env: {
                   NODE_ENV: 'production',
-                  PORT: '7744'
+                  PORT: '7744',
+                  MONGODB_URI: '${{ secrets.MONGO_CONNECTION }}'
                 },
                 error_file: '/tmp/ezapi/logs/node-err.log',
                 out_file: '/tmp/ezapi/logs/node-out.log',
@@ -272,7 +296,7 @@ jobs:
           ECOSYSTEM_EOF
 
           # Start services with PM2
-          echo "Starting services with PM2..."
+          echo "🔧 Starting services with PM2..."
           pm2 start $DEPLOY_BASE/scripts/ecosystem.config.js
           pm2 save
           
@@ -281,7 +305,7 @@ jobs:
             sudo pm2 startup || true
           fi
 
-          echo "Deployment completed successfully for user: $(whoami)"
+          echo "✅ Deployment completed successfully for user: $(whoami)"
           DEPLOY_EOF
 
           scp -i ~/.ssh/gcp_key deploy.sh $GCP_USER@$GCP_HOST:/tmp/ezapi/scripts/
@@ -296,17 +320,17 @@ jobs:
           echo "GCP DEPLOYMENT COMPLETED"
           echo "==========================="
           echo "Deployed to user: $GCP_USER"
-          sleep 10
+          sleep 15
 
           echo "PM2 Status:"
           ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "pm2 status"
 
           echo ""
           echo "Service Health Check:"
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "curl -s http://localhost:8002/actuator/health && echo 'Java healthy' || echo 'Java issue'"
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "curl -s http://localhost:8003/health && echo 'Python healthy' || echo ' Python issue'"
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "curl -s http://localhost:7744/health && echo 'Node.js healthy' || echo 'Node.js issue'"
-          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "curl -s http://localhost:8011 > /dev/null && echo 'React UI healthy' || echo 'React UI issue'"
+          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "curl -s http://localhost:8002/actuator/health && echo ' ✅ Java healthy' || echo ' ❌ Java issue'"
+          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "curl -s http://localhost:8003/health && echo ' ✅ Python healthy' || echo ' ❌ Python issue'"
+          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "curl -s http://localhost:7744/health && echo ' ✅ Node.js healthy' || echo ' ❌ Node.js issue'"
+          ssh -i ~/.ssh/gcp_key $GCP_USER@$GCP_HOST "curl -s http://localhost:8011 > /dev/null && echo ' ✅ React UI healthy' || echo ' ❌ React UI issue'"
 
           echo ""
           echo "SERVICE ENDPOINTS:"
